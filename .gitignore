@@ -8,3 +8,6 @@ Debug/
 Release/
 x64/
 x86/
+ExplorerMaps/**/*.jpg
+ExplorerMaps/**/*.jpeg
+ExplorerMaps/**/main.cpp
