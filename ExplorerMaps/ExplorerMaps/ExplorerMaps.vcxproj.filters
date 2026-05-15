@@ -21,6 +21,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Source Files\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Source Files\Camara.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

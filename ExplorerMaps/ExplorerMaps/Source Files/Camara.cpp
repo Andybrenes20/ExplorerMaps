@@ -1,4 +1,6 @@
 #include"Camara.h"
+#include <algorithm>
+#include <cmath>
 
 
 
@@ -92,16 +94,21 @@ void Camera::Inputs(GLFWwindow* window, float deltaTime)
 		float rotY = sensitivity * (float)(mouseX - (width / 2)) / width;
 
 		// Calculates upcoming vertical change in the Orientation
-		glm::vec3 newOrientation = glm::rotate(Orientation, glm::radians(-rotX), glm::normalize(glm::cross(Orientation, Up)));
+		glm::vec3 pitchAxis = glm::normalize(glm::cross(Orientation, Up));
+		glm::mat4 pitchRotation = glm::rotate(glm::mat4(1.0f), glm::radians(-rotX), pitchAxis);
+		glm::vec3 newOrientation = glm::normalize(glm::vec3(pitchRotation * glm::vec4(Orientation, 0.0f)));
 
 		// Decides whether or not the next vertical Orientation is legal or not
-		if (abs(glm::angle(newOrientation, Up) - glm::radians(90.0f)) <= glm::radians(85.0f))
+		float upDot = glm::clamp(glm::dot(glm::normalize(newOrientation), glm::normalize(Up)), -1.0f, 1.0f);
+		float angleToUp = std::acos(upDot);
+		if (std::abs(angleToUp - glm::radians(90.0f)) <= glm::radians(85.0f))
 		{
 			Orientation = newOrientation;
 		}
 
 		// Rotates the Orientation left and right
-		Orientation = glm::rotate(Orientation, glm::radians(-rotY), Up);
+		glm::mat4 yawRotation = glm::rotate(glm::mat4(1.0f), glm::radians(-rotY), Up);
+		Orientation = glm::normalize(glm::vec3(yawRotation * glm::vec4(Orientation, 0.0f)));
 
 		// Sets mouse cursor to the middle of the screen so that it doesn't end up roaming around
 		glfwSetCursorPos(window, (width / 2), (height / 2));
