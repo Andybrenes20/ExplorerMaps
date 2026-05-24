@@ -60,8 +60,8 @@ GLuint LoadCubemapTexture(const std::vector<std::string>& facePaths)
 			0,
 			format,
 			GL_UNSIGNED_BYTE,
-			data
-		);
+				data
+			);
 		stbi_image_free(data);
 	}
 
