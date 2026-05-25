@@ -11,6 +11,8 @@ uniform vec3 viewPos;
 uniform float sunHeight;
 uniform float isDay;
 uniform float useTexture;
+uniform float alpha;
+uniform float unlit;
 uniform sampler2D sphereTexture;
 
 const float PI = 3.14159265359;
@@ -28,6 +30,11 @@ void main()
 
         baseColor = texture(sphereTexture, moonUv).rgb;
         baseColor = mix(baseColor, color, 0.18);
+    }
+
+    if (unlit > 0.5) {
+        FragColor = vec4(baseColor, alpha);
+        return;
     }
 
     vec3 lightDir = normalize(lightPos - FragPos);
@@ -50,5 +57,5 @@ void main()
         result += vec3(0.5, 0.6, 0.8) * glow * 0.5;
     }
     
-    FragColor = vec4(result, 1.0);
+    FragColor = vec4(result, alpha);
 }

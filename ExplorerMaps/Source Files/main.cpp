@@ -52,6 +52,30 @@ const float dayNightSpeed = 0.20f;
 
 const float SUN_SIZE = 90.0f;
 const float MOON_SIZE = 65.0f;
+const int lampGlowSectors = 16;
+const int lampGlowIndexCount = lampGlowSectors * (lampGlowSectors - 1) * 6;
+const float lampGlowSize = 1.0f;
+const float lampCoreSize = 0.20f;
+const float lampHaloSize = 20.0f;
+const int lampLightCount = 12;
+const glm::vec3 lampLightPositions[lampLightCount] =
+{
+    glm::vec3(130.0f, -159.0f, 572.0f),
+    glm::vec3(-19.022f, -159.0f, 572.0f),
+    /*glm::vec3(210.0f, -159.0f, 435.0f),
+    glm::vec3(255.0f, -159.0f, 360.0f),
+    glm::vec3(300.0f, -159.0f, 285.0f),
+    glm::vec3(342.0f, -159.0f, 210.0f),
+    glm::vec3(42.0f, -159.0f, 535.0f),
+    glm::vec3(12.0f, -159.0f, 455.0f),
+    glm::vec3(-20.0f, -159.0f, 375.0f),
+    glm::vec3(-52.0f, -159.0f, 295.0f),
+    glm::vec3(-84.0f, -159.0f, 215.0f),
+    glm::vec3(95.0f, -159.0f, 160.0f)*/
+};
+const glm::vec3 lampLightColor = glm::vec3(1.0f, 0.92f, 0.78f);
+const float lampLightRadius = 50.0f;
+const float lampLightIntensity = 2.10f;
 
 enum class EnvironmentMode
 {
@@ -555,6 +579,7 @@ int main()
 
     GLuint sunVAO, sunVBO, sunEBO;
     GLuint moonVAO, moonVBO, moonEBO;
+    GLuint lampGlowVAO, lampGlowVBO, lampGlowEBO;
     GLuint overlayVAO, overlayVBO;
     glGenVertexArrays(1, &overlayVAO);
     glGenBuffers(1, &overlayVBO);
@@ -567,6 +592,7 @@ int main()
     glBindVertexArray(0);
     createSphere(sunVAO, sunVBO, sunEBO, 48, SUN_SIZE);
     createSphere(moonVAO, moonVBO, moonEBO, 36, MOON_SIZE);
+    createSphere(lampGlowVAO, lampGlowVBO, lampGlowEBO, lampGlowSectors, lampGlowSize);
 
     Model model("modelos/city.glb");
     Skybox skybox(
@@ -810,13 +836,47 @@ int main()
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "diffuseIntensity"), diffuseIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
+        glUniform1i(glGetUniformLocation(shaderProgram.ID, "lampLightCount"), lampLightCount);
+        glUniform3fv(glGetUniformLocation(shaderProgram.ID, "lampLightPositions[0]"), lampLightCount, glm::value_ptr(lampLightPositions[0]));
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "lampLightColor"), lampLightColor.r, lampLightColor.g, lampLightColor.b);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "lampLightRadius"), lampLightRadius);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "lampLightIntensity"), lampLightIntensity);
 
         model.Draw(shaderProgram, camera, modelTransform);
+
+        if (nightFactor > 0.02f)
+        {
+            sphereShader.Activate();
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "useTexture"), 0.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 1.0f);
+            glUniform3f(glGetUniformLocation(sphereShader.ID, "lightPos"), camera.Position.x, camera.Position.y, camera.Position.z);
+            glUniform3f(glGetUniformLocation(sphereShader.ID, "viewPos"), camera.Position.x, camera.Position.y, camera.Position.z);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "isDay"), 1.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "sunHeight"), sunHeight);
+            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+
+            glBindVertexArray(lampGlowVAO);
+            for (int i = 0; i < lampLightCount; ++i)
+            {
+                glm::mat4 coreModel =
+                    glm::translate(glm::mat4(1.0f), lampLightPositions[i]) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(lampCoreSize));
+                glUniform3f(glGetUniformLocation(sphereShader.ID, "color"), 1.0f, 0.96f, 0.88f);
+                glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), glm::clamp(nightFactor * 1.4f, 0.0f, 1.0f));
+                glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(coreModel));
+                glDrawElements(GL_TRIANGLES, lampGlowIndexCount, GL_UNSIGNED_INT, 0);
+            }
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
+        }
 
         if (sunPos.y > -200.0f && isDay) {
             sphereShader.Activate();
             sunTexture.Bind();
             glUniform1f(glGetUniformLocation(sphereShader.ID, "useTexture"), 1.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
             glm::mat4 sunModel = glm::translate(glm::mat4(1.0f), sunPos);
             glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
             glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
@@ -836,6 +896,8 @@ int main()
             sphereShader.Activate();
             moonTexture.Bind();
             glUniform1f(glGetUniformLocation(sphereShader.ID, "useTexture"), 1.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
+            glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
             glm::mat4 moonModel =
                 glm::translate(glm::mat4(1.0f), moonPos) *
                 glm::inverse(glm::mat4(glm::mat3(view)));
@@ -860,9 +922,7 @@ int main()
 
         if (showCoordinatesInWindowTitle && currentFrame - lastTitleUpdate >= 0.1f)
         {
-            const glm::vec3 normPos = glm::clamp(camera.Position / targetSceneRadius, glm::vec3(-1.0f), glm::vec3(1.0f));
-
-            const std::string title = BuildEnvironmentTitle(environmentMenu, environmentMode, normPos);
+            const std::string title = BuildEnvironmentTitle(environmentMenu, environmentMode, camera.Position);
             glfwSetWindowTitle(window, title.c_str());
             lastTitleUpdate = currentFrame;
         }
@@ -877,6 +937,9 @@ int main()
     glDeleteVertexArrays(1, &moonVAO);
     glDeleteBuffers(1, &moonVBO);
     glDeleteBuffers(1, &moonEBO);
+    glDeleteVertexArrays(1, &lampGlowVAO);
+    glDeleteBuffers(1, &lampGlowVBO);
+    glDeleteBuffers(1, &lampGlowEBO);
     sunTexture.Delete();
     moonTexture.Delete();
     glDeleteVertexArrays(1, &overlayVAO);
