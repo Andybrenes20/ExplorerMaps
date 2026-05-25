@@ -146,7 +146,7 @@ void Skybox::SetCloudSettings(const SkyCloudSettings& settings)
 	cloudSettings = settings;
 }
 
-void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float farPlane, float time, float sunHeight)
+void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float farPlane, float time, float sunHeight, const glm::vec3& sunDirection)
 {
 	glDepthFunc(GL_LEQUAL);
 
@@ -162,6 +162,7 @@ void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float far
 	glUniform1f(glGetUniformLocation(shader.ID, "blendFactor"), blendFactor);
 	glUniform1f(glGetUniformLocation(shader.ID, "time"), time);
 	glUniform1f(glGetUniformLocation(shader.ID, "sunHeight"), sunHeight);
+	glUniform3f(glGetUniformLocation(shader.ID, "sunDir"), sunDirection.x, sunDirection.y, sunDirection.z);
 	glUniform1f(glGetUniformLocation(shader.ID, "cloudCoverage"), cloudSettings.coverage);
 	glUniform1f(glGetUniformLocation(shader.ID, "cloudSpeed"), cloudSettings.speed);
 	glUniform1f(glGetUniformLocation(shader.ID, "cloudCrispiness"), cloudSettings.crispiness);

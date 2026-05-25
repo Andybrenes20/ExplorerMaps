@@ -1012,6 +1012,11 @@ int main()
         const float moonSpecularIntensity = glm::mix(0.10f, 0.15f, moonPresence);
 
         glm::vec3 mainLightPos = glm::mix(moonPos, sunPos, dayLightBlend);
+        glm::vec3 skySunDirection = glm::normalize(glm::vec3(
+            std::cos(sunAngleRad),
+            std::sin(sunAngleRad),
+            std::sin(sunAngleRad) * 0.5f
+        ));
         glm::vec3 mainLightColor = glm::mix(moonLightColor, sunLightColor, dayLightBlend);
         float mainLightIntensity = glm::mix(moonLightIntensity, sunLightIntensity, dayLightBlend);
         glm::vec3 ambientColor = glm::mix(moonAmbientColor, sunAmbientColor, dayLightBlend);
@@ -1174,7 +1179,7 @@ int main()
         }
 
         if (!useFastRenderMode)
-            skybox.Draw(camera, cameraFov, cameraNearPlane, cameraFarPlane, currentFrame, sunHeight);
+            skybox.Draw(camera, cameraFov, cameraNearPlane, cameraFarPlane, currentFrame, sunHeight, skySunDirection);
 
         DrawEnvironmentMenu(environmentMenu, environmentMode, manualTimeOfDay, overlayShader, overlayVAO, overlayVBO);
         DrawSkyControlImGui(skyPanel, environmentMode, manualTimeOfDay, cloudSettings);

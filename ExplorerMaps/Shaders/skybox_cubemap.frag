@@ -9,6 +9,7 @@ uniform samplerCube nightSkybox;
 uniform float blendFactor;
 uniform float time;
 uniform float sunHeight;
+uniform vec3 sunDir;
 uniform float cloudCoverage;
 uniform float cloudSpeed;
 uniform float cloudCrispiness;
@@ -63,7 +64,7 @@ void main()
 	vec4 nightColor = texture(nightSkybox, TexCoords);
 
 	vec3 dir = normalize(TexCoords);
-	vec3 sunDir = normalize(vec3(0.35, max(sunHeight, -0.12), -0.65));
+	vec3 skySunDir = normalize(sunDir);
 	vec4 proceduralDayColor = dayColor;
 	vec4 proceduralNightColor = nightColor;
 
@@ -83,7 +84,8 @@ void main()
 	}
 
 	float stars = smoothstep(0.985, 1.0, fbm(dir.xz * 180.0 + dir.y * 23.0));
-	float moonGlow = pow(max(dot(dir, normalize(-sunDir)), 0.0), 24.0);
+	float moonGlow = pow(max(dot(dir, normalize(-skySunDir)), 0.0), 24.0);
+	moonGlow *= smoothstep(-0.10, -0.45, sunHeight);
 	vec3 nightBase = mix(vec3(0.01, 0.02, 0.05), vec3(0.05, 0.07, 0.12), clamp(dir.y * 0.5 + 0.5, 0.0, 1.0));
 	nightBase += vec3(0.85, 0.90, 1.0) * moonGlow * 0.18;
 	nightBase += vec3(1.0) * stars * smoothstep(-0.12, -0.55, sunHeight);
@@ -122,7 +124,7 @@ void main()
 		float cloudCore = smoothstep(coverage + 0.03, coverage + 0.16, cloudShape);
 		float cloudRim = smoothstep(coverage - 0.01, coverage + 0.10, cloudShape) - cloudCore;
 
-		float lightFacing = max(dot(dir, sunDir), 0.0);
+		float lightFacing = smoothstep(-0.18, 0.32, dot(dir, skySunDir));
 		float warmSun = remap01(sunHeight, -0.02, 0.30);
 		float highSun = remap01(sunHeight, 0.25, 0.85);
 
@@ -135,9 +137,10 @@ void main()
 		cloudColor = mix(cloudColor, highlightColor, cloudRim * (0.25 + lightFacing * 0.75) * (0.45 + warmSun * 0.55));
 
 		float cloudOpacity = cloudMask * (0.78 + cloudCore * 0.20) * dayCloudVisibility * densityBoost;
+		cloudOpacity = clamp(cloudOpacity, 0.0, 1.0);
 		skyColor.rgb = mix(skyColor.rgb, cloudColor, cloudOpacity);
 		skyColor.rgb += highlightColor * cloudRim * lightFacing * 0.24 * dayCloudVisibility;
 	}
 
-	FragColor = skyColor;
+	FragColor = vec4(clamp(skyColor.rgb, 0.0, 1.0), skyColor.a);
 }
