@@ -63,7 +63,7 @@ struct EnvironmentMenuState
 {
     bool open = false;
     int selection = 0;
-    bool tabWasDown = false;
+    bool menuToggleWasDown = false;
     bool upWasDown = false;
     bool downWasDown = false;
     bool enterWasDown = false;
@@ -145,7 +145,7 @@ EnvironmentMode ResolveSkyboxMode(EnvironmentMode environmentMode, bool isDay)
 
 bool HandleEnvironmentMenu(GLFWwindow* window, EnvironmentMenuState& menu, EnvironmentMode& mode, bool& shouldExit)
 {
-    const bool tabDown = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
+    const bool menuToggleDown = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
     const bool upDown = glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
     const bool downDown = glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
     const bool enterDown = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_KP_ENTER) == GLFW_PRESS;
@@ -174,7 +174,10 @@ bool HandleEnvironmentMenu(GLFWwindow* window, EnvironmentMenuState& menu, Envir
         }
     }
 
-    if ((tabDown && !menu.tabWasDown) || (gamepadOptionsDown && !menu.gamepadOptionsWasDown))
+    const bool keyboardTogglePressed = menuToggleDown && !menu.menuToggleWasDown;
+    const bool gamepadTogglePressed = gamepadOptionsDown && !menu.gamepadOptionsWasDown;
+
+    if (keyboardTogglePressed || gamepadTogglePressed)
     {
         menu.open = !menu.open;
         menu.selection = EnvironmentSelectionFromMode(mode);
@@ -226,11 +229,12 @@ bool HandleEnvironmentMenu(GLFWwindow* window, EnvironmentMenuState& menu, Envir
             }
         }
 
-        if ((escapeDown && !menu.escapeWasDown) || (gamepadCancelDown && !menu.gamepadCancelWasDown))
+        if ((gamepadCancelDown && !menu.gamepadCancelWasDown) ||
+            ((escapeDown && !menu.escapeWasDown) && !keyboardTogglePressed))
             menu.open = false;
     }
 
-    menu.tabWasDown = tabDown;
+    menu.menuToggleWasDown = menuToggleDown;
     menu.upWasDown = upDown;
     menu.downWasDown = downDown;
     menu.enterWasDown = enterDown;
@@ -271,12 +275,12 @@ std::string BuildEnvironmentTitle(const EnvironmentMenuState& menu, EnvironmentM
         const char* option2 = menu.selection == 2 ? "> AUTO" : "  AUTO";
         const char* option3 = menu.selection == 3 ? "> SALIR" : "  SALIR";
         title << "MENU AMBIENTE | " << option0 << " | " << option1 << " | " << option2 << " | " << option3
-              << " | Flechas/W/S: mover | Enter: aplicar | Tab/Esc: cerrar";
+              << " | Flechas/W/S: mover | Enter: aplicar | Esc: cerrar";
     }
     else
     {
         title << "Ambiente: " << EnvironmentModeName(mode)
-              << " | Tab: menu | X:" << normPos.x << " Y:" << normPos.y << " Z:" << normPos.z;
+              << " | Esc: menu | X:" << normPos.x << " Y:" << normPos.y << " Z:" << normPos.z;
     }
 
     return title.str();
@@ -412,7 +416,7 @@ void DrawEnvironmentMenu(const EnvironmentMenuState& menu, EnvironmentMode mode,
         AddOverlayRect(vertices, 32.0f, 28.0f, 460.0f, 46.0f, glm::vec4(0.015f, 0.018f, 0.026f, 0.70f));
         AddOverlayRect(vertices, 32.0f, 28.0f, 4.0f, 46.0f, accent);
         AddOverlayText(vertices, std::string("AMBIENTE: ") + EnvironmentModeName(mode), 52.0f, 43.0f, 0.86f, textMain);
-        AddOverlayText(vertices, "TAB", 412.0f, 43.0f, 0.72f, accent);
+        AddOverlayText(vertices, "ESC", 412.0f, 43.0f, 0.72f, accent);
     }
 
     glDisable(GL_DEPTH_TEST);
@@ -615,11 +619,6 @@ int main()
         float currentFrame = static_cast<float>(glfwGetTime());
         float deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
-
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && !environmentMenu.open)
-        {
-            glfwSetWindowShouldClose(window, true);
-        }
 
         bool shouldExit = false;
         HandleEnvironmentMenu(window, environmentMenu, environmentMode, shouldExit);
