@@ -10,3 +10,5 @@ x64/
 x86/
 ExplorerMaps/**/*.jpg
 ExplorerMaps/**/*.jpeg
+!ExplorerMaps/Texturas/moon.jpg
+!ExplorerMaps/Texturas/sun.jpg
