@@ -159,6 +159,11 @@ xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source Files\ColliderManager.cpp" />
+    <ClCompile Include="Source Files\ColliderRenderer.cpp" />
+    <ClCompile Include="Source Files\ColliderSerializer.cpp" />
+    <ClCompile Include="Source Files\CollisionEditor.cpp" />
+    <ClCompile Include="Source Files\CollisionSystem.cpp" />
     <ClCompile Include="Source Files\CubemapTextureLoader.cpp" />
     <ClCompile Include="Source Files\Editor.cpp" />
     <ClCompile Include="Source Files\GizmoSystem.cpp" />
@@ -189,6 +194,12 @@ xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"</Command>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Header Files\Camara.h" />
+    <ClInclude Include="Header Files\ColliderManager.h" />
+    <ClInclude Include="Header Files\ColliderRenderer.h" />
+    <ClInclude Include="Header Files\ColliderSerializer.h" />
+    <ClInclude Include="Header Files\ColliderTypes.h" />
+    <ClInclude Include="Header Files\CollisionEditor.h" />
+    <ClInclude Include="Header Files\CollisionSystem.h" />
     <ClInclude Include="Header Files\CubemapTextureLoader.h" />
     <ClInclude Include="Header Files\EBO.h" />
     <ClInclude Include="Header Files\Editor.h" />
@@ -223,6 +234,7 @@ xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"</Command>
   <ItemGroup>
     <None Include="assimp-vc143-mt.pdb" />
     <None Include="assimp-vc143-mtd.dll" />
+    <None Include="colliders_overrides.json" />
     <None Include="glew32.dll" />
     <None Include="glfw3.dll" />
     <None Include="Iluminacion\lamp.frag" />
@@ -230,6 +242,8 @@ xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"</Command>
     <None Include="Iluminacion\lighting.frag" />
     <None Include="Iluminacion\lighting.vs" />
     <None Include="modelos\city.glb" />
+    <None Include="Shaders\collider_debug.frag" />
+    <None Include="Shaders\collider_debug.vert" />
     <None Include="Shaders\default.frag" />
     <None Include="Shaders\default.vert" />
     <None Include="Shaders\editor_line.frag" />

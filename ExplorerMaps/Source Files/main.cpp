@@ -24,6 +24,7 @@ extern "C"
 #include "Model.h"
 #include "Skybox.h"
 #include "Editor.h"
+#include "CollisionEditor.h"
 
 #define IMGUI_IMPL_OPENGL_LOADER_GLAD
 #include "imgui.h"
@@ -48,6 +49,7 @@ const float walkMaxStepUp = 12.0f;
 const float walkMaxDropDown = 45.0f;
 const float walkMaxSlopeDegrees = 68.0f;
 const float walkSpeed = 30.0f;
+const float cameraCollisionRadius = 6.0f;
 
 // --- Opciones ----------------w--------------------------
 const bool showCoordinatesInWindowTitle = true;
@@ -56,11 +58,11 @@ const glm::vec3 blockedZoneMin = glm::vec3(240.0f, -260.0f, 360.0f);
 const glm::vec3 blockedZoneMax = glm::vec3(310.0f, -150.0f, 435.0f);
 
 // CICLO MUY RAPIDO PARA VIDEO
-const float dayNightSpeed = 0.20f;
+const float dayNightSpeed = 0.01f;
 const bool useProceduralDaySkybox = true;
 
-const float SUN_SIZE = 120.0f;
-const float MOON_SIZE = 65.0f;
+const float SUN_SIZE = 50.0f;
+const float MOON_SIZE = 30.0f;
 const int lampGlowSectors = 16;
 const int lampGlowIndexCount = lampGlowSectors * (lampGlowSectors - 1) * 6;
 const float lampGlowSize = 1.0f;
@@ -658,20 +660,20 @@ void DrawSkyControlImGui(SkyPanelState& panel, EnvironmentMode& mode, float& man
 
     if (ImGui::Button("Default clouds"))
     {
-        cloudSettings.coverage = 0.62f;
-        cloudSettings.speed = 1.0f;
-        cloudSettings.crispiness = 1.0f;
-        cloudSettings.curliness = 0.75f;
-        cloudSettings.density = 0.95f;
+        cloudSettings.coverage = 0.86f;
+        cloudSettings.speed = 1.05f;
+        cloudSettings.crispiness = 0.92f;
+        cloudSettings.curliness = 0.92f;
+        cloudSettings.density = 1.18f;
     }
     ImGui::SameLine();
     if (ImGui::Button("Heavy clouds"))
     {
-        cloudSettings.coverage = 0.98f;
-        cloudSettings.speed = 1.25f;
-        cloudSettings.crispiness = 0.85f;
-        cloudSettings.curliness = 1.10f;
-        cloudSettings.density = 1.35f;
+        cloudSettings.coverage = 1.08f;
+        cloudSettings.speed = 1.20f;
+        cloudSettings.crispiness = 0.82f;
+        cloudSettings.curliness = 1.18f;
+        cloudSettings.density = 1.48f;
     }
 
     ImGui::Text("Current time: %s", FormatTimeOfDay(manualTimeOfDay).c_str());
@@ -960,7 +962,7 @@ int main()
     createSphere(lampGlowVAO, lampGlowVBO, lampGlowEBO, lampGlowSectors, lampGlowSize);
     createCube(lightCubeVAO, lightCubeVBO);
 
-    Model model("modelos/city.glb");
+    Model model("modelos/city2.glb");
     Skybox skybox(
         GetSkyboxFacePaths(EnvironmentMode::Day),
         GetSkyboxFacePaths(EnvironmentMode::Night),
@@ -1029,6 +1031,8 @@ int main()
     float specularIntensity = 0.5f;
     glm::vec4 lightColor(1.0f);
     glm::vec3 skySunDirection(0.0f, 1.0f, 0.0f);
+    ColliderManager colliderManager;
+    CollisionSystem collisionSystem;
 
     Editor editor;
     EditorConfig editorConfig;
@@ -1072,6 +1076,53 @@ int main()
     };
     editor.Init(editorConfig);
 
+    CollisionEditor collisionEditor;
+    CollisionEditorConfig collisionEditorConfig;
+    collisionEditorConfig.window = window;
+    collisionEditorConfig.camera = &camera;
+    collisionEditorConfig.manager = &colliderManager;
+    collisionEditorConfig.collisionSystem = &collisionSystem;
+    collisionEditorConfig.filePath = "colliders_overrides.json";
+    collisionEditorConfig.placementPlaneOffset = walkEyeHeight;
+    collisionEditorConfig.viewportRenderer = [&](const CollisionViewportRenderRequest& request)
+    {
+        Camera previewCamera = camera;
+        previewCamera.width = request.width;
+        previewCamera.height = request.height;
+        previewCamera.Position = request.cameraPosition;
+        previewCamera.cameraMatrix = request.projection * request.view;
+
+        shaderProgram.Activate();
+        glUniform4f(glGetUniformLocation(shaderProgram.ID, "lightColor"), lightColor.x, lightColor.y, lightColor.z, lightColor.w);
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "lightPos"), mainLightPos.x, mainLightPos.y, mainLightPos.z);
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "moonPos"), moonPos.x, moonPos.y, moonPos.z);
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "viewPos"), request.cameraPosition.x, request.cameraPosition.y, request.cameraPosition.z);
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "ambientColor"), ambientColor.x, ambientColor.y, ambientColor.z);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "time"), lastFrame);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "dayFactor"), dayFactor);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "nightFactor"), nightFactor);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "isDay"), isDay ? 1.0f : 0.0f);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "diffuseIntensity"), diffuseIntensity);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
+        glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
+        UploadLampLightUniforms(shaderProgram, sceneData.lights);
+
+        for (const Entity& entity : sceneData.entities)
+        {
+            model.Draw(shaderProgram, previewCamera, BuildSceneModelTransform(entity, baseModelTransform));
+        }
+
+        DrawInteriorLightCubes(sceneData.lights, lightShader, previewCamera, lightCubeVAO, skySunDirection);
+    };
+    collisionEditorConfig.cameraFov = cameraFov;
+    collisionEditorConfig.nearPlane = cameraNearPlane;
+    collisionEditorConfig.farPlane = cameraFarPlane;
+    collisionEditorConfig.worldInteractionBlocked = [&editor]()
+    {
+        return editor.IsActive();
+    };
+    collisionEditor.Init(collisionEditorConfig);
+
     glm::vec3 snappedStart;
     if (model.TrySnapToWalkableSurface(
         camera.Position, BuildSceneModelTransform(sceneData.entities.front(), baseModelTransform),
@@ -1097,9 +1148,10 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         editor.Update(deltaTime);
+        collisionEditor.Update(deltaTime);
 
         bool shouldExit = false;
-        if (!editor.IsActive())
+        if (!editor.IsActive() && !collisionEditor.IsActive())
         {
             HandleEnvironmentMenu(window, environmentMenu, environmentMode, shouldExit);
             HandleSkyPanel(window, skyPanel, environmentMode, manualTimeOfDay);
@@ -1109,7 +1161,7 @@ int main()
             glfwSetWindowShouldClose(window, true);
         }
 
-        const bool wantsUiCursor = environmentMenu.open || skyPanel.open || editor.WantsCursor();
+        const bool wantsUiCursor = environmentMenu.open || skyPanel.open || editor.WantsCursor() || collisionEditor.WantsCursor();
         if (wantsUiCursor && !menuCursorVisible)
         {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -1249,7 +1301,7 @@ int main()
 
         const glm::mat4 sceneModelTransform = BuildSceneModelTransform(sceneData.entities.front(), baseModelTransform);
         const glm::vec3 prevPos = camera.Position;
-        if (!environmentMenu.open && !skyPanel.open && !editor.IsActive())
+        if (!environmentMenu.open && !skyPanel.open && !editor.IsActive() && !collisionEditor.IsActive())
         {
             if (environmentMode == EnvironmentMode::Manual && !skyPanel.open)
             {
@@ -1288,6 +1340,12 @@ int main()
                 camera.Position.z >= blockedZoneMin.z && camera.Position.z <= blockedZoneMax.z;
             if (blocked) camera.Position = prevPos;
         }
+
+        camera.Position = collisionSystem.ResolveCameraPosition(
+            colliderManager.GetColliders(),
+            prevPos,
+            camera.Position,
+            cameraCollisionRadius);
 
         camera.updateMatrix(cameraFov, cameraNearPlane, cameraFarPlane);
         glm::mat4 view = camera.GetViewMatrix();
@@ -1381,6 +1439,7 @@ int main()
         DrawEnvironmentMenu(environmentMenu, environmentMode, manualTimeOfDay, overlayShader, overlayVAO, overlayVBO);
         DrawSkyControlImGui(skyPanel, environmentMode, manualTimeOfDay, cloudSettings);
         editor.Render();
+        collisionEditor.Render();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -1413,6 +1472,7 @@ int main()
     glDeleteVertexArrays(1, &overlayVAO);
     glDeleteBuffers(1, &overlayVBO);
     editor.Shutdown();
+    collisionEditor.Shutdown();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
