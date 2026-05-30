@@ -113,6 +113,14 @@ void main()
 
 	vec4 skyColor = mix(proceduralDayColor, proceduralNightColor, clamp(blendFactor, 0.0, 1.0));
 
+	// During dusk, push the warm tint upward so it reads above the city silhouette.
+	float duskFactor = smoothstep(-0.10, 0.20, sunHeight) * (1.0 - smoothstep(0.28, 0.72, sunHeight));
+	float upperSky = smoothstep(0.18, 1.0, dir.y * 0.5 + 0.5);
+	float lowerSky = 1.0 - upperSky;
+	skyColor.rgb = mix(skyColor.rgb, skyColor.rgb * vec3(0.90, 0.94, 1.00), lowerSky * duskFactor * 0.35);
+	skyColor.rgb += vec3(0.16, 0.05, 0.03) * duskFactor * pow(upperSky, 3.0);
+	skyColor.rgb += vec3(0.08, 0.02, 0.01) * duskFactor * pow(upperSky, 1.6) * 0.55;
+
 	float cloudBand = smoothstep(-0.12, 0.46, dir.y) * (1.0 - smoothstep(0.90, 0.995, dir.y));
 	float dayCloudVisibility = (1.0 - clamp(blendFactor, 0.0, 1.0) * 0.75) * smoothstep(-0.26, 0.20, sunHeight);
 

@@ -55,11 +55,8 @@ const float cameraCollisionRadius = 6.0f;
 // --- Opciones ----------------w--------------------------
 const bool showCoordinatesInWindowTitle = true;
 const bool useFastRenderMode = false;
-const glm::vec3 blockedZoneMin = glm::vec3(240.0f, -260.0f, 360.0f);
-const glm::vec3 blockedZoneMax = glm::vec3(310.0f, -150.0f, 435.0f);
-
 // CICLO MUY RAPIDO PARA VIDEO
-const float dayNightSpeed = 0.01f;
+const float dayNightSpeed = 0.20f;
 const bool useProceduralDaySkybox = true;
 
 const float SUN_SIZE = 50.0f;
@@ -1732,6 +1729,31 @@ void UploadLampLightUniforms(Shader& shaderProgram, const std::vector<Light>& li
     glUniform1fv(glGetUniformLocation(shaderProgram.ID, "lampLightIntensities[0]"), static_cast<GLsizei>(maxLampLightCount), lightIntensities.data());
 }
 
+void UploadDirectionalLightUniforms(
+    Shader& shaderProgram,
+    const glm::vec3& sunDirection,
+    const glm::vec3& sunColor,
+    float sunIntensity,
+    const glm::vec3& moonDirection,
+    const glm::vec3& moonColor,
+    float moonIntensity,
+    const glm::vec3& ambientColor,
+    float sunHeight,
+    float dayFactor,
+    float nightFactor)
+{
+    glUniform3f(glGetUniformLocation(shaderProgram.ID, "sunDirection"), sunDirection.x, sunDirection.y, sunDirection.z);
+    glUniform3f(glGetUniformLocation(shaderProgram.ID, "sunColor"), sunColor.x, sunColor.y, sunColor.z);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunIntensity"), sunIntensity);
+    glUniform3f(glGetUniformLocation(shaderProgram.ID, "moonDirection"), moonDirection.x, moonDirection.y, moonDirection.z);
+    glUniform3f(glGetUniformLocation(shaderProgram.ID, "moonColor"), moonColor.x, moonColor.y, moonColor.z);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "moonIntensity"), moonIntensity);
+    glUniform3f(glGetUniformLocation(shaderProgram.ID, "ambientColor"), ambientColor.x, ambientColor.y, ambientColor.z);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "dayFactor"), dayFactor);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "nightFactor"), nightFactor);
+}
+
 void DrawLampGlowMarkers(const std::vector<Light>& lights, Shader& sphereShader, GLuint lampGlowVAO, float nightFactor)
 {
     glBindVertexArray(lampGlowVAO);
@@ -1943,6 +1965,12 @@ int main(int argc, char** argv)
     float specularIntensity = 0.5f;
     glm::vec4 lightColor(1.0f);
     glm::vec3 skySunDirection(0.0f, 1.0f, 0.0f);
+    glm::vec3 sunDirection(0.0f, -1.0f, 0.0f);
+    glm::vec3 moonDirection(0.0f, 1.0f, 0.0f);
+    glm::vec3 sunLightColor(1.0f);
+    float sunLightIntensity = 1.0f;
+    glm::vec3 moonLightColor(1.0f);
+    float moonLightIntensity = 1.0f;
     ColliderManager colliderManager;
     CollisionSystem collisionSystem;
     DrivableCarState car;
@@ -1971,14 +1999,18 @@ int main(int argc, char** argv)
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "lightPos"), mainLightPos.x, mainLightPos.y, mainLightPos.z);
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "moonPos"), moonPos.x, moonPos.y, moonPos.z);
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "viewPos"), request.cameraPosition.x, request.cameraPosition.y, request.cameraPosition.z);
-        glUniform3f(glGetUniformLocation(shaderProgram.ID, "ambientColor"), ambientColor.x, ambientColor.y, ambientColor.z);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "time"), lastFrame);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "dayFactor"), dayFactor);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "nightFactor"), nightFactor);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "isDay"), isDay ? 1.0f : 0.0f);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "diffuseIntensity"), diffuseIntensity);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
-        glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
+        UploadDirectionalLightUniforms(
+            shaderProgram,
+            sunDirection,
+            sunLightColor,
+            sunLightIntensity,
+            moonDirection,
+            moonLightColor,
+            moonLightIntensity,
+            ambientColor,
+            sunHeight,
+            dayFactor,
+            nightFactor);
         UploadLampLightUniforms(shaderProgram, sceneData.lights);
 
         for (const Entity& entity : sceneData.entities)
@@ -2231,45 +2263,47 @@ int main(int argc, char** argv)
             );
         }
 
-        const float dayLightBlend = glm::smoothstep(-0.14f, 0.18f, sunHeight);
-        const float sunWarmBlend = glm::smoothstep(-0.04f, 0.32f, sunHeight);
-        const float sunNoonBlend = glm::smoothstep(0.18f, 0.82f, sunHeight);
-        const float sunPresence = glm::smoothstep(-0.08f, 0.75f, sunHeight);
-        const float moonPresence = glm::smoothstep(0.08f, -0.88f, sunHeight);
+        const float dayLightBlend = glm::smoothstep(-0.26f, 0.34f, sunHeight);
+        const float sunWarmBlend = glm::smoothstep(-0.10f, 0.28f, sunHeight);
+        const float sunNoonBlend = glm::smoothstep(0.22f, 0.82f, sunHeight);
+        const float sunPresence = glm::smoothstep(-0.18f, 0.78f, sunHeight);
+        const float moonPresence = glm::smoothstep(0.20f, -0.80f, sunHeight);
         const float moonHeight = glm::clamp(std::abs(moonVertical), 0.0f, 1.0f);
+        sunDirection = glm::normalize(-sunPos);
+        moonDirection = glm::normalize(-moonPos);
 
         const glm::vec3 sunWarmColor = glm::mix(
             glm::vec3(0.92f, 0.46f, 0.28f),
             glm::vec3(1.0f, 0.76f, 0.56f),
             sunWarmBlend
         );
-        const glm::vec3 sunLightColor = glm::mix(
+        sunLightColor = glm::mix(
             sunWarmColor,
             glm::vec3(1.0f, 0.98f, 0.92f),
             sunNoonBlend
         );
-        const float sunLightIntensity = glm::mix(0.16f, 1.18f, sunPresence);
+        sunLightIntensity = glm::mix(0.08f, 1.18f, sunPresence);
         const glm::vec3 sunAmbientColor = glm::mix(
             glm::vec3(0.08f, 0.07f, 0.10f),
             glm::vec3(0.35f, 0.38f, 0.42f),
             glm::smoothstep(-0.02f, 0.72f, sunHeight)
         );
-        const float sunDiffuseIntensity = glm::mix(0.22f, 1.0f, sunPresence);
-        const float sunSpecularIntensity = glm::mix(0.12f, 0.60f, sunPresence);
+        const float sunDiffuseIntensity = glm::mix(0.12f, 1.0f, sunPresence);
+        const float sunSpecularIntensity = glm::mix(0.08f, 0.60f, sunPresence);
 
-        const glm::vec3 moonLightColor = glm::mix(
+        moonLightColor = glm::mix(
             glm::vec3(0.50f, 0.56f, 0.74f),
             glm::vec3(0.65f, 0.70f, 0.90f),
             moonHeight
         );
-        const float moonLightIntensity = glm::mix(0.14f, 0.34f, moonPresence * moonHeight);
+        moonLightIntensity = glm::mix(0.18f, 0.34f, moonPresence * moonHeight);
         const glm::vec3 moonAmbientColor = glm::mix(
             glm::vec3(0.05f, 0.06f, 0.08f),
             glm::vec3(0.08f, 0.10f, 0.15f),
             glm::smoothstep(-0.90f, -0.10f, sunHeight)
         );
-        const float moonDiffuseIntensity = glm::mix(0.22f, 0.35f, moonPresence);
-        const float moonSpecularIntensity = glm::mix(0.10f, 0.15f, moonPresence);
+        const float moonDiffuseIntensity = glm::mix(0.18f, 0.35f, moonPresence);
+        const float moonSpecularIntensity = glm::mix(0.06f, 0.15f, moonPresence);
 
         mainLightPos = glm::mix(moonPos, sunPos, dayLightBlend);
         skySunDirection = glm::normalize(glm::vec3(
@@ -2286,7 +2320,7 @@ int main(int argc, char** argv)
         lightColor = glm::vec4(mainLightColor * mainLightIntensity, 1.0f);
 
         const glm::vec3 nightSkyColor(0.03f, 0.04f, 0.08f);
-        const glm::vec3 twilightSkyColor(0.88f, 0.50f, 0.34f);
+        const glm::vec3 twilightSkyColor(0.72f, 0.44f, 0.42f);
         const glm::vec3 daySkyColor(0.46f, 0.74f, 0.98f);
         const float twilightBlend = glm::smoothstep(-0.22f, 0.18f, sunHeight);
         const float dayBlend = glm::smoothstep(0.08f, 0.72f, sunHeight);
@@ -2329,7 +2363,13 @@ int main(int argc, char** argv)
             HandleCollisionEditorCameraControls(window, camera, deltaTime);
         }
 
+<<<<<<< Updated upstream
         if (!camera.flyMode && !car.driving)
+=======
+        const bool editingModeActive = editor.IsActive() || collisionEditor.IsActive();
+
+        if (!camera.flyMode && !editingModeActive)
+>>>>>>> Stashed changes
         {
             glm::vec3 snapped;
             if (model.TrySnapToWalkableSurface(
@@ -2347,11 +2387,10 @@ int main(int argc, char** argv)
             else
                 camera.Position = prevPos;
 
-            const bool blocked =
-                camera.Position.x >= blockedZoneMin.x && camera.Position.x <= blockedZoneMax.x &&
-                camera.Position.y >= blockedZoneMin.y && camera.Position.y <= blockedZoneMax.y &&
-                camera.Position.z >= blockedZoneMin.z && camera.Position.z <= blockedZoneMax.z;
-            if (blocked) camera.Position = prevPos;
+        }
+        else if (!camera.flyMode && editingModeActive)
+        {
+            // Editing mode can move outside the map bounds to place colliders.
         }
 
         if (!car.driving)
@@ -2381,6 +2420,7 @@ int main(int argc, char** argv)
         glUniform4f(glGetUniformLocation(shaderProgram.ID, "lightColor"), lightColor.x, lightColor.y, lightColor.z, lightColor.w);
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "lightPos"), mainLightPos.x, mainLightPos.y, mainLightPos.z);
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "moonPos"), moonPos.x, moonPos.y, moonPos.z);
+<<<<<<< Updated upstream
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "viewPos"), renderCamera.Position.x, renderCamera.Position.y, renderCamera.Position.z);
         glUniform3f(glGetUniformLocation(shaderProgram.ID, "ambientColor"), ambientColor.x, ambientColor.y, ambientColor.z);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "time"), currentFrame);
@@ -2390,6 +2430,21 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "diffuseIntensity"), diffuseIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
+=======
+        glUniform3f(glGetUniformLocation(shaderProgram.ID, "viewPos"), camera.Position.x, camera.Position.y, camera.Position.z);
+        UploadDirectionalLightUniforms(
+            shaderProgram,
+            sunDirection,
+            sunLightColor,
+            sunLightIntensity,
+            moonDirection,
+            moonLightColor,
+            moonLightIntensity,
+            ambientColor,
+            sunHeight,
+            dayFactor,
+            nightFactor);
+>>>>>>> Stashed changes
         UploadLampLightUniforms(shaderProgram, sceneData.lights);
 
         for (const Entity& entity : sceneData.entities)

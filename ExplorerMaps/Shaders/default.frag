@@ -1,24 +1,28 @@
 #version 330 core
 
-// Outputs colors in RGBA
 out vec4 FragColor;
 
-// Imports the normal from the Vertex Shader
 in vec3 Normal;
-// Imports the current fragment position from the Vertex Shader
 in vec3 crntPos;
-// Imports the color from the Vertex Shader
 in vec3 color;
-// Imports the texture coordinates from the Vertex Shader
 in vec2 texCoord;
 
-
-
-// Gets the Texture Units from the main function
 uniform sampler2D diffuse0;
 // Gets the color of the light from the main function
 uniform vec4 lightColor;
 uniform float objectLightBoost;
+uniform vec3 viewPos;
+
+uniform vec3 sunDirection;
+uniform vec3 sunColor;
+uniform float sunIntensity;
+
+uniform vec3 moonDirection;
+uniform vec3 moonColor;
+uniform float moonIntensity;
+
+uniform vec3 ambientColor;
+uniform float sunHeight;
 uniform float nightFactor;
 uniform int lampLightCount;
 uniform vec3 lampLightPositions[12];
@@ -26,15 +30,34 @@ uniform vec3 lampLightColors[12];
 uniform float lampLightRadii[12];
 uniform float lampLightIntensities[12];
 
+float DirectionalTerm(vec3 lightDirection, vec3 normal, vec3 viewDir, float shininess, float wrapAmount)
+{
+	vec3 lightDir = normalize(-lightDirection);
+	float nDotL = dot(normal, lightDir);
+	float diffuse = clamp((nDotL + wrapAmount) / (1.0f + wrapAmount), 0.0f, 1.0f);
+	vec3 reflectDir = reflect(-lightDir, normal);
+	float specular = pow(max(dot(viewDir, reflectDir), 0.0f), shininess);
+	return diffuse * 0.92f + specular * 0.08f;
+}
+
 void main()
 {
-	vec3 normal = normalize(Normal);
-	vec3 lightDirection = normalize(vec3(-0.45f, 1.0f, 0.35f));
-	float lambert = max(dot(normal, lightDirection), 0.0f);
-	float hemi = clamp(normal.y * 0.5f + 0.5f, 0.0f, 1.0f);
-	float lighting = 0.68f + lambert * 0.32f + hemi * 0.18f;
+	vec3 normal = normalize(gl_FrontFacing ? Normal : -Normal);
+	vec3 viewDir = normalize(viewPos - crntPos);
 	vec4 base = texture(diffuse0, texCoord) * vec4(color, 1.0f);
-	vec3 litColor = base.rgb * lighting * lightColor.rgb;
+
+	float hemi = clamp(normal.y * 0.5f + 0.5f, 0.0f, 1.0f);
+	float sunDayBlend = smoothstep(-0.30f, 0.28f, sunHeight);
+	float dawnDusk = smoothstep(-0.30f, 0.02f, sunHeight) * (1.0f - smoothstep(0.18f, 0.55f, sunHeight));
+	vec3 skyAmbient = vec3(0.16f, 0.19f, 0.24f);
+	vec3 dayAmbient = max(ambientColor, skyAmbient);
+	vec3 nightAmbient = vec3(0.025f, 0.028f, 0.045f);
+	vec3 ambient = mix(nightAmbient, dayAmbient, sunDayBlend);
+	ambient = mix(ambient, ambient * vec3(1.12f, 1.08f, 1.02f), hemi * 0.45f);
+	ambient += vec3(0.045f, 0.030f, 0.020f) * dawnDusk;
+	vec3 litColor = base.rgb * ambient;
+	litColor += base.rgb * sunColor * sunIntensity * DirectionalTerm(sunDirection, normal, viewDir, 20.0f, 0.18f) * sunDayBlend;
+	litColor += base.rgb * moonColor * moonIntensity * DirectionalTerm(moonDirection, normal, viewDir, 16.0f, 0.28f) * (1.0f - sunDayBlend);
 
 	vec3 lampContribution = vec3(0.0f);
 	vec3 emissiveLamp = vec3(0.0f);
@@ -43,7 +66,9 @@ void main()
 		vec3 toLamp = lampLightPositions[i] - crntPos;
 		float distanceToLamp = length(toLamp);
 		if (distanceToLamp < 0.001f)
+		{
 			continue;
+		}
 
 		vec3 lampToFragment = crntPos - lampLightPositions[i];
 		float verticalDrop = lampLightPositions[i].y - crntPos.y;
