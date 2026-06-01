@@ -198,6 +198,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClCompile Include="Source Files\Texture.cpp" />
     <ClCompile Include="Source Files\VAO.cpp" />
     <ClCompile Include="Source Files\VBO.cpp" />
+    <ClCompile Include="Source Files\VolumetricCloudRenderer.cpp" />
     <ClCompile Include="third_party\ImGuizmo\ImGuizmo.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -227,6 +228,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClInclude Include="Header Files\VAO.h" />
     <ClInclude Include="Header Files\VBO.h" />
     <ClInclude Include="Header Files\Vertex.h" />
+    <ClInclude Include="Header Files\VolumetricCloudRenderer.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_impl_glfw.h" />
@@ -268,6 +270,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     <None Include="Shaders\skybox_cubemap.vert" />
     <None Include="Shaders\sphere.frag" />
     <None Include="Shaders\sphere.vert" />
+    <None Include="Shaders\volumetric_sky.frag" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Texturas\Fonts\calibri.ttf" />

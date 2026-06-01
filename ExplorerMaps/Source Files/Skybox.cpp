@@ -146,6 +146,11 @@ void Skybox::SetCloudSettings(const SkyCloudSettings& settings)
 	cloudSettings = settings;
 }
 
+void Skybox::SetProceduralCloudsEnabled(bool enabled)
+{
+	proceduralCloudsEnabled = enabled;
+}
+
 void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float farPlane, float time, float sunHeight, const glm::vec3& sunDirection, const glm::vec3& moonPosition)
 {
 	glDepthFunc(GL_LEQUAL);
@@ -187,6 +192,7 @@ void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float far
 	glUniform1f(glGetUniformLocation(shader.ID, "rainIntensity"), cloudSettings.rainIntensity);
 	glUniform3f(glGetUniformLocation(shader.ID, "cameraPosition"), camera.Position.x, camera.Position.y, camera.Position.z);
 	glUniform2f(glGetUniformLocation(shader.ID, "resolution"), static_cast<float>(camera.width), static_cast<float>(camera.height));
+	glUniform1i(glGetUniformLocation(shader.ID, "useProceduralClouds"), proceduralCloudsEnabled ? 1 : 0);
 
 	glBindVertexArray(VAO);
 	glActiveTexture(GL_TEXTURE0);

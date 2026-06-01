@@ -44,6 +44,7 @@ public:
 	void Draw(const Camera& camera, float FOVdeg, float nearPlane, float farPlane, float time, float sunHeight, const glm::vec3& sunDirection, const glm::vec3& moonPosition);
 	void SetBlendFactor(float factor);
 	void SetCloudSettings(const SkyCloudSettings& settings);
+	void SetProceduralCloudsEnabled(bool enabled);
 	static std::vector<unsigned char> BuildProceduralFace(int width, int height, int faceIndex, bool nightTheme);
 
 private:
@@ -53,6 +54,7 @@ private:
 	GLuint nightCubemapTexture = 0;
 	float blendFactor = 0.0f;
 	SkyCloudSettings cloudSettings;
+	bool proceduralCloudsEnabled = true;
 	Shader shader;
 
 	void setupCube();

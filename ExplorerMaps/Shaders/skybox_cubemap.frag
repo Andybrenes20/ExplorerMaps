@@ -25,8 +25,8 @@ uniform vec3 cloudColor;
 uniform float rainIntensity;
 uniform vec3 cameraPosition;
 uniform vec2 resolution;
+uniform bool useProceduralClouds = true;
 
-const bool useProceduralClouds = true;
 const bool useRepoInspiredDaySky = true;
 
 float hash(vec2 p)

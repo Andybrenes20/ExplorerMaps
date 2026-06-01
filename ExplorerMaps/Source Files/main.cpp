@@ -30,6 +30,7 @@ extern "C"
 
 #include "Model.h"
 #include "Skybox.h"
+#include "VolumetricCloudRenderer.h"
 #include "Editor.h"
 #include "CollisionEditor.h"
 
@@ -1956,7 +1957,7 @@ int main(int argc, char** argv)
         SetWorkingDirectoryFromExecutable(argv[0]);
 
     glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
@@ -1992,7 +1993,7 @@ int main(int argc, char** argv)
     imguiIo.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     LoadApplicationFont(imguiIo);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui_ImplOpenGL3_Init("#version 430");
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     MainMenuState mainMenu;
@@ -2092,6 +2093,10 @@ int main(int argc, char** argv)
         "Shaders/skybox_cubemap.vert",
         "Shaders/skybox_cubemap.frag"
     );
+    VolumetricCloudRenderer volumetricClouds(width, height);
+    skybox.SetProceduralCloudsEnabled(!volumetricClouds.IsReady());
+    if (!volumetricClouds.GetStatusMessage().empty())
+        std::cout << volumetricClouds.GetStatusMessage() << std::endl;
 
     glm::vec3 modelCenter = model.GetCenter();
     float modelRadius = model.GetRadius();
@@ -2397,11 +2402,16 @@ int main(int argc, char** argv)
         skybox.SetBlendFactor(glm::clamp(skyBlendFactor + smoothedRainIntensity * 0.18f, 0.0f, 1.0f));
 
         SkyCloudSettings effectiveCloudSettings = cloudSettings;
-        effectiveCloudSettings.coverage = glm::mix(effectiveCloudSettings.coverage, 0.86f, smoothedRainIntensity);
-        effectiveCloudSettings.speed = glm::mix(effectiveCloudSettings.speed, 1.55f, smoothedRainIntensity);
-        effectiveCloudSettings.crispiness = glm::mix(effectiveCloudSettings.crispiness, 0.38f, smoothedRainIntensity);
-        effectiveCloudSettings.curliness = glm::mix(effectiveCloudSettings.curliness, 0.72f, smoothedRainIntensity);
-        effectiveCloudSettings.density = glm::mix(effectiveCloudSettings.density, 1.18f, smoothedRainIntensity);
+        effectiveCloudSettings.coverage = glm::mix(effectiveCloudSettings.coverage, 0.62f, smoothedRainIntensity);
+        effectiveCloudSettings.speed = glm::mix(effectiveCloudSettings.speed, 1.10f, smoothedRainIntensity);
+        effectiveCloudSettings.crispiness = glm::mix(effectiveCloudSettings.crispiness, 1.0f, smoothedRainIntensity);
+        effectiveCloudSettings.curliness = glm::mix(effectiveCloudSettings.curliness, 0.14f, smoothedRainIntensity);
+        effectiveCloudSettings.density = glm::mix(effectiveCloudSettings.density, 1.35f, smoothedRainIntensity);
+        effectiveCloudSettings.lightAbsorption = glm::mix(effectiveCloudSettings.lightAbsorption, 0.42f, smoothedRainIntensity);
+        effectiveCloudSettings.cloudColor = glm::mix(
+            effectiveCloudSettings.cloudColor,
+            glm::vec3(88.0f, 98.0f, 112.0f) / 255.0f,
+            smoothedRainIntensity);
         effectiveCloudSettings.rainIntensity = smoothedRainIntensity;
         activeCloudSettings = effectiveCloudSettings;
         skybox.SetCloudSettings(effectiveCloudSettings);
@@ -2521,8 +2531,18 @@ int main(int argc, char** argv)
             skyColor += mainLightColor * (0.018f + moonGlow * 0.035f);
         }
 
-        glClearColor(skyColor.x, skyColor.y, skyColor.z, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        const bool useVolumetricClouds = volumetricClouds.IsReady() && !useFastRenderMode;
+        if (useVolumetricClouds)
+        {
+            volumetricClouds.BindSceneFramebuffer(skyColor);
+        }
+        else
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, width, height);
+            glClearColor(skyColor.x, skyColor.y, skyColor.z, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
 
         const glm::mat4 sceneModelTransform = BuildSceneModelTransform(sceneData.entities.front(), baseModelTransform);
         const glm::vec3 prevPos = camera.Position;
@@ -2640,8 +2660,31 @@ int main(int argc, char** argv)
             glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
         }
 
-        if (!useFastRenderMode)
+        if (useVolumetricClouds)
+        {
+            volumetricClouds.BindSkyFramebuffer(skyColor);
+            const glm::vec3 cloudLightDirection = glm::length(mainLightPos - renderCamera.Position) > 0.001f
+                ? glm::normalize(mainLightPos - renderCamera.Position)
+                : skySunDirection;
+            const glm::vec3 terrainSkyTop = glm::mix(glm::vec3(0.5f, 0.7f, 0.8f) * 1.05f, glm::vec3(0.34f, 0.39f, 0.45f), smoothedRainIntensity * 0.65f);
+            const glm::vec3 terrainSkyBottom = glm::mix(glm::vec3(0.9f, 0.9f, 0.95f), glm::vec3(0.56f, 0.61f, 0.66f), smoothedRainIntensity * 0.65f);
+            volumetricClouds.RenderTerrainSky(view, projection, cloudLightDirection, terrainSkyTop, terrainSkyBottom);
+            volumetricClouds.RenderClouds(
+                renderCamera,
+                view,
+                projection,
+                activeCloudSettings,
+                cloudLightDirection,
+                mainLightColor * mainLightIntensity,
+                terrainSkyTop,
+                terrainSkyBottom,
+                currentFrame);
+            volumetricClouds.CompositeToScreen(activeCloudSettings, false);
+        }
+        else if (!useFastRenderMode)
+        {
             skybox.Draw(renderCamera, cameraFov, cameraNearPlane, cameraFarPlane, currentFrame, sunHeight, skySunDirection, moonPos);
+        }
 
         DrawRainOverlay(rainShader, rainVAO, smoothedRainIntensity, nightFactor, currentFrame);
 
@@ -2676,6 +2719,7 @@ int main(int argc, char** argv)
     glDeleteBuffers(1, &rainVBO);
     glDeleteVertexArrays(1, &overlayVAO);
     glDeleteBuffers(1, &overlayVBO);
+    volumetricClouds.Shutdown();
     editor.Shutdown();
     collisionEditor.Shutdown();
     ImGui_ImplOpenGL3_Shutdown();

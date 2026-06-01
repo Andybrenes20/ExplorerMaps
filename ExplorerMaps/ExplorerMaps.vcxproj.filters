@@ -72,6 +72,9 @@
     <ClCompile Include="Source Files\VBO.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source Files\VolumetricCloudRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Source Files\CubemapTextureLoader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -182,6 +185,9 @@
     <ClInclude Include="Header Files\Vertex.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Header Files\VolumetricCloudRenderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -275,6 +281,9 @@
       <Filter>Resource Files\Shaders</Filter>
     </None>
     <None Include="Shaders\skybox_cubemap.vert">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="Shaders\volumetric_sky.frag">
       <Filter>Resource Files\Shaders</Filter>
     </None>
     <None Include="assimp-vc143-mt.pdb" />
