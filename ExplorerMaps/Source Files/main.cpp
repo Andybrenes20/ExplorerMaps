@@ -15,6 +15,12 @@ namespace fs = std::filesystem;
 //------------------------------
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+
 extern "C"
 {
     __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
@@ -62,8 +68,6 @@ const glm::vec3 blockedZoneMax = glm::vec3(310.0f, -150.0f, 435.0f);
 const float dayNightSpeed = 0.08f;
 const bool useProceduralDaySkybox = true;
 
-const float SUN_SIZE = 50.0f;
-const float MOON_SIZE = 30.0f;
 const int lampGlowSectors = 16;
 const int lampGlowIndexCount = lampGlowSectors * (lampGlowSectors - 1) * 6;
 const float lampGlowSize = 1.0f;
@@ -283,7 +287,7 @@ void DrawDrivableCar(
     const DrivableCarState& car,
     const glm::vec3& localAnchorOffset)
 {
-    glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 1.0f);
+    glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.46f);
     carModel.Draw(shader, camera, BuildCarTransform(car, localAnchorOffset));
     glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.0f);
 }
@@ -726,6 +730,71 @@ std::string BuildEnvironmentTitle(const EnvironmentMenuState& menu, EnvironmentM
     }
 
     return title.str();
+}
+
+fs::path FindTerrainEngineRoot()
+{
+    const fs::path relativeRoot = fs::path("external") / "TerrainEngine-OpenGL";
+    fs::path dir = fs::current_path();
+
+    while (!dir.empty())
+    {
+        const fs::path nestedRoot = dir / relativeRoot;
+        if (fs::exists(nestedRoot / "x64" / "Debug" / "Terrain.exe") &&
+            fs::exists(nestedRoot / "shaders") &&
+            fs::exists(nestedRoot / "resources"))
+        {
+            return fs::absolute(nestedRoot);
+        }
+
+        if (fs::exists(dir / "x64" / "Debug" / "Terrain.exe") &&
+            fs::exists(dir / "shaders") &&
+            fs::exists(dir / "resources"))
+        {
+            return fs::absolute(dir);
+        }
+
+        const fs::path parent = dir.parent_path();
+        if (parent == dir)
+            break;
+        dir = parent;
+    }
+
+    return {};
+}
+
+bool LaunchTerrainEngineDemo(std::string& statusMessage)
+{
+#ifdef _WIN32
+    const fs::path terrainRoot = FindTerrainEngineRoot();
+    if (terrainRoot.empty())
+    {
+        statusMessage = "No se encontro external/TerrainEngine-OpenGL/x64/Debug/Terrain.exe.";
+        return false;
+    }
+
+    const fs::path terrainExe = terrainRoot / "x64" / "Debug" / "Terrain.exe";
+    const HINSTANCE result = ShellExecuteW(
+        nullptr,
+        L"open",
+        terrainExe.wstring().c_str(),
+        nullptr,
+        terrainRoot.wstring().c_str(),
+        SW_SHOWNORMAL
+    );
+
+    if (reinterpret_cast<INT_PTR>(result) <= 32)
+    {
+        statusMessage = "Windows no pudo abrir TerrainEngine. Codigo: " + std::to_string(reinterpret_cast<INT_PTR>(result));
+        return false;
+    }
+
+    statusMessage = "TerrainEngine abierto en una ventana separada.";
+    return true;
+#else
+    statusMessage = "La preview externa solo esta implementada para Windows.";
+    return false;
+#endif
 }
 
 struct OverlayVertex
@@ -1407,99 +1476,151 @@ void DrawSkyControlImGui(SkyPanelState& panel, EnvironmentMode& mode, float& man
     if (!panel.open)
         return;
 
-    ImGui::SetNextWindowPos(ImVec2(48.0f, 64.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(330.0f, 610.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(82.0f, 78.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(344.0f, 548.0f), ImGuiCond_Always);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 5.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 7.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 5.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.005f, 0.006f, 0.009f, 0.88f));
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.01f, 0.012f, 0.018f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.01f, 0.012f, 0.018f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.14f, 0.25f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.08f, 0.20f, 0.36f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.10f, 0.25f, 0.46f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.25f, 0.52f, 0.92f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0.48f, 0.70f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.25f, 0.52f, 0.92f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.93f, 0.95f, 0.98f, 1.0f));
+
     bool open = panel.open;
-    if (!ImGui::Begin("Scene controls", &open, flags))
+    if (!ImGui::Begin("> Scene controls::", &open, flags))
     {
         ImGui::End();
         panel.open = open;
+        ImGui::PopStyleColor(10);
+        ImGui::PopStyleVar(4);
         return;
     }
     panel.open = open;
 
-    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.22f, 1.0f), "Clouds controls");
+    auto section = [](const char* label)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.96f, 0.02f, 1.0f), "%s", label);
+    };
+
+    auto slider = [](const char* id, const char* label, float* value, float minValue, float maxValue, const char* format)
+    {
+        ImGui::PushItemWidth(166.0f);
+        const bool changed = ImGui::SliderFloat(id, value, minValue, maxValue, format);
+        ImGui::PopItemWidth();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(label);
+        return changed;
+    };
 
     static const char* modeNames[] = { "AUTO", "DIA", "NOCHE", "MANUAL" };
     int modeIndex = mode == EnvironmentMode::Auto ? 0 : mode == EnvironmentMode::Day ? 1 : mode == EnvironmentMode::Night ? 2 : 3;
-    if (ImGui::SliderInt("Mode", &modeIndex, 0, 3, modeNames[modeIndex]))
+    ImGui::PushItemWidth(166.0f);
+    if (ImGui::SliderInt("##mode", &modeIndex, 0, 3, modeNames[modeIndex]))
         mode = modeIndex == 0 ? EnvironmentMode::Auto : modeIndex == 1 ? EnvironmentMode::Day : modeIndex == 2 ? EnvironmentMode::Night : EnvironmentMode::Manual;
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Ambiente");
 
     float hour = WrapTimeOfDay(manualTimeOfDay);
-    if (ImGui::SliderFloat("Hour", &hour, 0.0f, 1.0f, FormatTimeOfDay(hour).c_str()))
+    ImGui::PushItemWidth(166.0f);
+    if (ImGui::SliderFloat("##hour", &hour, 0.0f, 1.0f, FormatTimeOfDay(hour).c_str()))
     {
         manualTimeOfDay = hour;
         mode = EnvironmentMode::Manual;
     }
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Hour");
 
-    ImGui::SliderFloat("Auto speed", &cycleSpeedMultiplier, 0.25f, 8.0f, "%.2fx");
-    ImGui::SliderFloat("Coverage", &cloudSettings.coverage, 0.20f, 1.20f);
-    ImGui::SliderFloat("Speed", &cloudSettings.speed, 0.10f, 3.50f);
-    ImGui::SliderFloat("Crispiness", &cloudSettings.crispiness, 0.35f, 2.50f);
-    ImGui::SliderFloat("Curliness", &cloudSettings.curliness, 0.10f, 2.50f);
-    ImGui::SliderFloat("Density", &cloudSettings.density, 0.20f, 1.60f);
-    ImGui::SliderFloat("Rain", &cloudSettings.rainIntensity, 0.0f, 1.0f, "%.2f");
+    slider("##autospeed", "Auto cycle", &cycleSpeedMultiplier, 0.25f, 8.0f, "%.2fx");
 
-    if (ImGui::Button("Default clouds"))
+    ImGui::Checkbox("Post Processing (Gaussian Blur)", &cloudSettings.postProcessing);
+    ImGui::Checkbox("God Rays", &cloudSettings.godRays);
+    section("Clouds rendering");
+
+    slider("##coverage", "Coverage", &cloudSettings.coverage, 0.0f, 1.0f, "%.3f");
+    float speedDisplay = cloudSettings.speed * 450.0f;
+    if (slider("##speed", "Speed", &speedDisplay, 0.0f, 900.0f, "%.3f"))
+        cloudSettings.speed = glm::clamp(speedDisplay / 450.0f, 0.0f, 2.0f);
+    float crispinessDisplay = cloudSettings.crispiness * 40.0f;
+    if (slider("##crispiness", "Crispiness", &crispinessDisplay, 1.0f, 80.0f, "%.3f"))
+        cloudSettings.crispiness = glm::clamp(crispinessDisplay / 40.0f, 0.025f, 2.0f);
+    slider("##curliness", "Curliness", &cloudSettings.curliness, 0.0f, 1.0f, "%.3f");
+    float densityDisplay = cloudSettings.density * 0.020f;
+    if (slider("##density", "Density", &densityDisplay, 0.0f, 0.080f, "%.3f"))
+        cloudSettings.density = glm::clamp(densityDisplay / 0.020f, 0.0f, 4.0f);
+    slider("##absorption", "Light absor", &cloudSettings.lightAbsorption, 0.0f, 1.0f, "%.3f");
+
+    ImGui::Checkbox("Enable sugar powder effect", &cloudSettings.sugarPowder);
+    section("Dome controls");
+    slider("##dome", "Sky dome radius", &cloudSettings.skyDomeRadius, 100000.0f, 900000.0f, "%.3f");
+    slider("##bottom", "Clouds bottom", &cloudSettings.cloudBottom, 500.0f, 20000.0f, "%.3f");
+    slider("##top", "Clouds top", &cloudSettings.cloudTop, 3000.0f, 50000.0f, "%.3f");
+    slider("##frequency", "Clouds freq", &cloudSettings.cloudFrequency, 0.20f, 2.40f, "%.3f");
+
+    section("Clouds colors");
+    ImGui::PushItemWidth(166.0f);
+    ImGui::ColorEdit3("##cloudcolor", &cloudSettings.cloudColor[0], ImGuiColorEditFlags_NoPicker);
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    ImGui::Text("Cloud color");
+
+    if (ImGui::Button("TerrainEngine look", ImVec2(156.0f, 0.0f)))
     {
-        cloudSettings.coverage = 0.86f;
-        cloudSettings.speed = 1.05f;
-        cloudSettings.crispiness = 0.92f;
-        cloudSettings.curliness = 0.92f;
-        cloudSettings.density = 1.18f;
+        cloudSettings.coverage = 0.45f;
+        cloudSettings.speed = 1.0f;
+        cloudSettings.crispiness = 1.0f;
+        cloudSettings.curliness = 0.10f;
+        cloudSettings.density = 1.0f;
+        cloudSettings.lightAbsorption = 0.35f;
+        cloudSettings.skyDomeRadius = 600000.0f;
+        cloudSettings.cloudBottom = 5000.0f;
+        cloudSettings.cloudTop = 17000.0f;
+        cloudSettings.cloudFrequency = 0.80f;
+        cloudSettings.cloudColor = glm::vec3(98.0f, 105.0f, 120.0f) / 255.0f;
         cloudSettings.rainIntensity = 0.0f;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Heavy clouds"))
+    if (ImGui::Button("Storm", ImVec2(84.0f, 0.0f)))
     {
-        cloudSettings.coverage = 1.08f;
-        cloudSettings.speed = 1.20f;
-        cloudSettings.crispiness = 0.82f;
-        cloudSettings.curliness = 1.18f;
-        cloudSettings.density = 1.48f;
-    }
-    if (ImGui::Button("Rainy city"))
-    {
-        cloudSettings.coverage = 1.16f;
-        cloudSettings.speed = 2.15f;
-        cloudSettings.crispiness = 0.72f;
-        cloudSettings.curliness = 1.42f;
-        cloudSettings.density = 1.60f;
-        cloudSettings.rainIntensity = 0.78f;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Storm"))
-    {
-        cloudSettings.coverage = 1.20f;
-        cloudSettings.speed = 2.85f;
-        cloudSettings.crispiness = 0.62f;
-        cloudSettings.curliness = 1.80f;
-        cloudSettings.density = 1.60f;
+        cloudSettings.coverage = 0.78f;
+        cloudSettings.speed = 1.70f;
+        cloudSettings.crispiness = 0.88f;
+        cloudSettings.curliness = 0.36f;
+        cloudSettings.density = 2.65f;
+        cloudSettings.lightAbsorption = 0.62f;
+        cloudSettings.cloudColor = glm::vec3(70.0f, 82.0f, 96.0f) / 255.0f;
         cloudSettings.rainIntensity = 1.0f;
     }
 
-    ImGui::Text("Current time: %s", FormatTimeOfDay(manualTimeOfDay).c_str());
-    ImGui::Text("Rain shortcut: R");
-    ImGui::Text("Sky model: procedural repo-like");
+    slider("##rain", "Rain", &cloudSettings.rainIntensity, 0.0f, 1.0f, "%.3f");
+
+    ImGui::Text("Time: %s | R lluvia", FormatTimeOfDay(manualTimeOfDay).c_str());
     ImGui::Separator();
 
-    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.22f, 1.0f), "Sky controls");
-    ImGui::Text("No cubemap textures");
-    ImGui::Text("Day/night generated in shader");
-    ImGui::Text("Mouse enabled while this panel is open");
-    ImGui::Separator();
-
-    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.22f, 1.0f), "Shortcuts");
-    ImGui::BulletText("F3 abre/cierra este panel");
-    ImGui::BulletText("ESC abre el menu clasico");
-    ImGui::BulletText("J/L mueve el tiempo rapido");
-    ImGui::BulletText("Mouse controla sliders y botones");
-    ImGui::Separator();
-
+    static std::string terrainLaunchStatus;
+    section("External demo");
+    if (ImGui::Button("Abrir TerrainEngine", ImVec2(166.0f, 0.0f)))
+    {
+        LaunchTerrainEngineDemo(terrainLaunchStatus);
+    }
+    if (!terrainLaunchStatus.empty())
+    {
+        ImGui::TextWrapped("%s", terrainLaunchStatus.c_str());
+    }
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     ImGui::End();
+    ImGui::PopStyleColor(10);
+    ImGui::PopStyleVar(4);
 }
 std::vector<std::string> GetSkyboxFacePaths(EnvironmentMode mode)
 {
@@ -1597,7 +1718,7 @@ void HandleCollisionEditorCameraControls(GLFWwindow* window, Camera& camera, flo
         camera.Position -= currentSpeed * camera.Up;
 }
 
-void createSphere(GLuint& VAO, GLuint& VBO, GLuint& EBO, int sectors, float radius) {
+void createSphere(GLuint& VAO, GLuint& VBO, GLuint& EBO, GLsizei& indexCount, int sectors, float radius) {
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
 
@@ -1657,6 +1778,7 @@ void createSphere(GLuint& VAO, GLuint& VBO, GLuint& EBO, int sectors, float radi
     glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+    indexCount = static_cast<GLsizei>(indices.size());
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
@@ -1753,6 +1875,13 @@ void UploadLampLightUniforms(Shader& shaderProgram, const std::vector<Light>& li
     glUniform3fv(glGetUniformLocation(shaderProgram.ID, "lampLightColors[0]"), static_cast<GLsizei>(maxLampLightCount), glm::value_ptr(lightColors[0]));
     glUniform1fv(glGetUniformLocation(shaderProgram.ID, "lampLightRadii[0]"), static_cast<GLsizei>(maxLampLightCount), lightRadii.data());
     glUniform1fv(glGetUniformLocation(shaderProgram.ID, "lampLightIntensities[0]"), static_cast<GLsizei>(maxLampLightCount), lightIntensities.data());
+}
+
+void UploadCloudShadowUniforms(Shader& shaderProgram, const SkyCloudSettings& cloudSettings)
+{
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "cloudCoverage"), cloudSettings.coverage);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "cloudSpeed"), cloudSettings.speed);
+    glUniform1f(glGetUniformLocation(shaderProgram.ID, "cloudDensity"), cloudSettings.density);
 }
 
 void DrawLampGlowMarkers(const std::vector<Light>& lights, Shader& sphereShader, GLuint lampGlowVAO, float nightFactor, float rainIntensity)
@@ -1898,19 +2027,13 @@ int main(int argc, char** argv)
     Shader lightShader("Shaders/light.vert", "Shaders/light.frag");
     Shader sphereShader("Shaders/sphere.vert", "Shaders/sphere.frag");
     Shader rainShader("Shaders/screen.vert", "Shaders/rain_overlay.frag");
-    Texture sunTexture("Texturas/sun.jpg", "diffuse", 0);
-    Texture moonTexture("Texturas/moon.jpg", "diffuse", 0);
-    sphereShader.Activate();
-    sunTexture.texUnit(sphereShader, "sphereTexture", 0);
 
-    GLuint sunVAO, sunVBO, sunEBO;
-    GLuint moonVAO, moonVBO, moonEBO;
     GLuint lampGlowVAO, lampGlowVBO, lampGlowEBO;
     GLuint lightCubeVAO, lightCubeVBO;
     GLuint rainVAO, rainVBO;
-    createSphere(sunVAO, sunVBO, sunEBO, 48, SUN_SIZE);
-    createSphere(moonVAO, moonVBO, moonEBO, 36, MOON_SIZE);
-    createSphere(lampGlowVAO, lampGlowVBO, lampGlowEBO, lampGlowSectors, lampGlowSize);
+    GLsizei lampGlowDrawIndexCount = 0;
+    createSphere(lampGlowVAO, lampGlowVBO, lampGlowEBO, lampGlowDrawIndexCount, lampGlowSectors, lampGlowSize);
+    (void)lampGlowDrawIndexCount;
     createCube(lightCubeVAO, lightCubeVBO);
 
     const float rainQuadVertices[] =
@@ -1996,6 +2119,7 @@ int main(int argc, char** argv)
     float nightFactor = 0.0f;
     float manualTimeOfDay = 0.18f;
     SkyCloudSettings cloudSettings;
+    SkyCloudSettings activeCloudSettings = cloudSettings;
     float cycleSpeedMultiplier = 1.0f;
     float smoothedRainIntensity = 0.0f;
     bool rainToggleWasDown = false;
@@ -2047,6 +2171,7 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
+        UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
         UploadLampLightUniforms(shaderProgram, sceneData.lights);
 
         for (const Entity& entity : sceneData.entities)
@@ -2090,6 +2215,7 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
+        UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
         UploadLampLightUniforms(shaderProgram, sceneData.lights);
 
         for (const Entity& entity : sceneData.entities)
@@ -2271,12 +2397,13 @@ int main(int argc, char** argv)
         skybox.SetBlendFactor(glm::clamp(skyBlendFactor + smoothedRainIntensity * 0.18f, 0.0f, 1.0f));
 
         SkyCloudSettings effectiveCloudSettings = cloudSettings;
-        effectiveCloudSettings.coverage = glm::mix(effectiveCloudSettings.coverage, 1.20f, smoothedRainIntensity);
-        effectiveCloudSettings.speed = glm::mix(effectiveCloudSettings.speed, 2.25f, smoothedRainIntensity);
-        effectiveCloudSettings.crispiness = glm::mix(effectiveCloudSettings.crispiness, 0.62f, smoothedRainIntensity);
-        effectiveCloudSettings.curliness = glm::mix(effectiveCloudSettings.curliness, 1.65f, smoothedRainIntensity);
-        effectiveCloudSettings.density = glm::mix(effectiveCloudSettings.density, 1.60f, smoothedRainIntensity);
+        effectiveCloudSettings.coverage = glm::mix(effectiveCloudSettings.coverage, 0.86f, smoothedRainIntensity);
+        effectiveCloudSettings.speed = glm::mix(effectiveCloudSettings.speed, 1.55f, smoothedRainIntensity);
+        effectiveCloudSettings.crispiness = glm::mix(effectiveCloudSettings.crispiness, 0.38f, smoothedRainIntensity);
+        effectiveCloudSettings.curliness = glm::mix(effectiveCloudSettings.curliness, 0.72f, smoothedRainIntensity);
+        effectiveCloudSettings.density = glm::mix(effectiveCloudSettings.density, 1.18f, smoothedRainIntensity);
         effectiveCloudSettings.rainIntensity = smoothedRainIntensity;
+        activeCloudSettings = effectiveCloudSettings;
         skybox.SetCloudSettings(effectiveCloudSettings);
 
         dayFactor = glm::clamp(sunHeight + 0.2f, 0.05f, 1.0f);
@@ -2327,19 +2454,19 @@ int main(int argc, char** argv)
         const float moonHeight = glm::clamp(std::abs(moonVertical), 0.0f, 1.0f);
 
         const glm::vec3 sunWarmColor = glm::mix(
-            glm::vec3(1.0f, 0.50f, 0.22f),
-            glm::vec3(1.0f, 0.72f, 0.46f),
+            glm::vec3(1.0f, 0.47f, 0.18f),
+            glm::vec3(1.0f, 0.76f, 0.50f),
             sunWarmBlend
         );
         const glm::vec3 sunLightColor = glm::mix(
             sunWarmColor,
-            glm::vec3(1.0f, 0.92f, 0.78f),
+            glm::vec3(1.0f, 0.95f, 0.82f),
             sunNoonBlend
         );
-        const float sunLightIntensity = glm::mix(0.28f, 1.24f, sunPresence);
+        const float sunLightIntensity = glm::mix(0.34f, 1.36f, sunPresence);
         const glm::vec3 sunAmbientColor = glm::mix(
-            glm::vec3(0.08f, 0.07f, 0.10f),
-            glm::vec3(0.42f, 0.38f, 0.31f),
+            glm::vec3(0.07f, 0.07f, 0.10f),
+            glm::vec3(0.34f, 0.37f, 0.40f),
             glm::smoothstep(-0.02f, 0.72f, sunHeight)
         );
         const float sunDiffuseIntensity = glm::mix(0.22f, 1.0f, sunPresence);
@@ -2381,7 +2508,7 @@ int main(int argc, char** argv)
 
         const glm::vec3 nightSkyColor(0.03f, 0.04f, 0.08f);
         const glm::vec3 twilightSkyColor(0.96f, 0.62f, 0.34f);
-        const glm::vec3 daySkyColor(0.62f, 0.74f, 0.86f);
+        const glm::vec3 daySkyColor(0.43f, 0.64f, 0.91f);
         const float twilightBlend = glm::smoothstep(-0.22f, 0.18f, sunHeight);
         const float dayBlend = glm::smoothstep(0.08f, 0.72f, sunHeight);
         glm::vec3 skyColor = glm::mix(nightSkyColor, twilightSkyColor, twilightBlend);
@@ -2486,6 +2613,7 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "specularIntensity"), specularIntensity);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
+        UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
         UploadLampLightUniforms(shaderProgram, sceneData.lights);
 
         for (const Entity& entity : sceneData.entities)
@@ -2510,50 +2638,6 @@ int main(int argc, char** argv)
             DrawLampGlowMarkers(sceneData.lights, sphereShader, lampGlowVAO, nightFactor, smoothedRainIntensity);
             glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
             glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
-        }
-
-        if (sunPos.y > -200.0f && isDay) {
-            sphereShader.Activate();
-            sunTexture.Bind();
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "useTexture"), 1.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
-            glm::mat4 sunModel = glm::translate(glm::mat4(1.0f), sunPos);
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(sunModel));
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "color"), 1.0f, 0.85f, 0.45f);
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "lightPos"), mainLightPos.x, mainLightPos.y, mainLightPos.z);
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "viewPos"), renderCamera.Position.x, renderCamera.Position.y, renderCamera.Position.z);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "isDay"), 1.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "sunHeight"), sunHeight);
-
-            glBindVertexArray(sunVAO);
-            glDrawElements(GL_TRIANGLES, 48 * 48 * 6, GL_UNSIGNED_INT, 0);
-            sunTexture.Unbind();
-        }
-
-        if (moonPos.y > -200.0f && !isDay) {
-            sphereShader.Activate();
-            moonTexture.Bind();
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "useTexture"), 1.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "unlit"), 0.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "alpha"), 1.0f);
-            glm::mat4 moonModel =
-                glm::translate(glm::mat4(1.0f), moonPos) *
-                glm::inverse(glm::mat4(glm::mat3(view)));
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(moonModel));
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "view"), 1, GL_FALSE, glm::value_ptr(view));
-            glUniformMatrix4fv(glGetUniformLocation(sphereShader.ID, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "color"), 0.75f, 0.80f, 0.95f);
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "lightPos"), mainLightPos.x, mainLightPos.y, mainLightPos.z);
-            glUniform3f(glGetUniformLocation(sphereShader.ID, "viewPos"), renderCamera.Position.x, renderCamera.Position.y, renderCamera.Position.z);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "isDay"), 0.0f);
-            glUniform1f(glGetUniformLocation(sphereShader.ID, "sunHeight"), sunHeight);
-
-            glBindVertexArray(moonVAO);
-            glDrawElements(GL_TRIANGLES, 36 * 36 * 6, GL_UNSIGNED_INT, 0);
-            moonTexture.Unbind();
         }
 
         if (!useFastRenderMode)
@@ -2583,12 +2667,6 @@ int main(int argc, char** argv)
         glfwPollEvents();
     }
 
-    glDeleteVertexArrays(1, &sunVAO);
-    glDeleteBuffers(1, &sunVBO);
-    glDeleteBuffers(1, &sunEBO);
-    glDeleteVertexArrays(1, &moonVAO);
-    glDeleteBuffers(1, &moonVBO);
-    glDeleteBuffers(1, &moonEBO);
     glDeleteVertexArrays(1, &lampGlowVAO);
     glDeleteBuffers(1, &lampGlowVBO);
     glDeleteBuffers(1, &lampGlowEBO);
@@ -2596,8 +2674,6 @@ int main(int argc, char** argv)
     glDeleteBuffers(1, &lightCubeVBO);
     glDeleteVertexArrays(1, &rainVAO);
     glDeleteBuffers(1, &rainVBO);
-    sunTexture.Delete();
-    moonTexture.Delete();
     glDeleteVertexArrays(1, &overlayVAO);
     glDeleteBuffers(1, &overlayVBO);
     editor.Shutdown();

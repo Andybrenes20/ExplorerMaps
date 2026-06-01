@@ -17,6 +17,33 @@ std::string get_file_contents(const char* filename)
 	throw std::runtime_error(std::string("No se pudo abrir el archivo: ") + filename);
 }
 
+namespace
+{
+	void CheckShaderCompile(GLuint shader, const char* shaderPath)
+	{
+		GLint success = 0;
+		glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+		if (success)
+			return;
+
+		GLchar infoLog[2048] = {};
+		glGetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+		std::cerr << "Error compilando shader " << shaderPath << ":\n" << infoLog << std::endl;
+	}
+
+	void CheckProgramLink(GLuint program, const char* vertexPath, const char* fragmentPath)
+	{
+		GLint success = 0;
+		glGetProgramiv(program, GL_LINK_STATUS, &success);
+		if (success)
+			return;
+
+		GLchar infoLog[2048] = {};
+		glGetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+		std::cerr << "Error enlazando shader program (" << vertexPath << ", " << fragmentPath << "):\n" << infoLog << std::endl;
+	}
+}
+
 Shader::Shader(const char* vertexFile, const char* fragmentFile)
 {
 	std::string vertexCode = get_file_contents(vertexFile);
@@ -28,15 +55,18 @@ Shader::Shader(const char* vertexFile, const char* fragmentFile)
 	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(vertexShader, 1, &vertexSource, NULL);
 	glCompileShader(vertexShader);
+	CheckShaderCompile(vertexShader, vertexFile);
 
 	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
 	glCompileShader(fragmentShader);
+	CheckShaderCompile(fragmentShader, fragmentFile);
 
 	ID = glCreateProgram();
 	glAttachShader(ID, vertexShader);
 	glAttachShader(ID, fragmentShader);
 	glLinkProgram(ID);
+	CheckProgramLink(ID, vertexFile, fragmentFile);
 
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);

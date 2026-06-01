@@ -12,12 +12,22 @@
 
 struct SkyCloudSettings
 {
-	float coverage = 0.86f;
-	float speed = 1.05f;
-	float crispiness = 0.92f;
-	float curliness = 0.92f;
-	float density = 1.18f;
+	float coverage = 0.45f;
+	float speed = 1.0f;
+	float crispiness = 1.0f;
+	float curliness = 0.10f;
+	float density = 1.0f;
+	float lightAbsorption = 0.35f;
+	float skyDomeRadius = 600000.0f;
+	float cloudBottom = 5000.0f;
+	float cloudTop = 17000.0f;
+	float cloudFrequency = 0.80f;
+	glm::vec3 cloudColor = glm::vec3(98.0f, 105.0f, 120.0f) / 255.0f;
 	float rainIntensity = 0.0f;
+	glm::vec3 cameraPosition = glm::vec3(0.0f);
+	bool postProcessing = true;
+	bool godRays = false;
+	bool sugarPowder = false;
 };
 
 class Skybox
