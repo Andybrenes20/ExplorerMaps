@@ -500,16 +500,18 @@ vec4 renderTerrainCloudDeck(vec3 worldDir, vec4 bg)
 	float erode = textureLod(worley32, vec3(puffUv * (1.35 + curliness), 0.42), 0.0).r;
 
 	float coverage = clamp(coverage_multiplier, 0.0, 1.0);
-	float thresholdValue = mix(0.62, 0.34, coverage);
-	float softness = mix(0.30, 0.13, clamp(crispiness / 80.0, 0.0, 1.0));
-	float shape = broad * 0.44 + low * 0.34 + mid * 0.20 + puffs * 0.12 - erode * (0.10 + curliness * 0.045);
+	float thresholdValue = mix(0.44, 0.22, coverage);
+	float softness = mix(0.34, 0.18, clamp(crispiness / 80.0, 0.0, 1.0));
+	float shape = broad * 0.26 + low * 0.38 + mid * 0.25 + puffs * 0.18 - erode * (0.075 + curliness * 0.030);
 	float body = smoothstep(thresholdValue, thresholdValue + softness, shape);
+	float sheet = smoothstep(thresholdValue - 0.10, thresholdValue + softness * 1.35, low * 0.54 + mid * 0.28 + broad * 0.22);
 
 	float lowerDeck = smoothstep(thresholdValue - 0.16, thresholdValue + 0.22, broad * 0.72 + low * 0.28);
 	float horizonBand = smoothstep(-0.02, 0.22, worldDir.y) * (1.0 - smoothstep(0.70, 0.98, worldDir.y));
 	float zenithFade = 1.0 - smoothstep(0.94, 1.0, worldDir.y);
-	float alpha = body * (0.66 + densityFactor * 12.0);
-	alpha += lowerDeck * horizonBand * (0.30 + coverage * 0.24);
+	float alpha = body * (0.82 + densityFactor * 12.0);
+	alpha += sheet * horizonBand * (0.36 + coverage * 0.30);
+	alpha += lowerDeck * horizonBand * (0.26 + coverage * 0.22);
 	alpha *= skyAmount * mix(0.82, 1.0, zenithFade);
 	alpha = clamp(alpha, 0.0, 0.88);
 
