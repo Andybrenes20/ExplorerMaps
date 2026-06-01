@@ -262,6 +262,9 @@
     <None Include="Shaders\light.vert">
       <Filter>Resource Files\Shaders</Filter>
     </None>
+    <None Include="Shaders\post_processing.frag">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
     <None Include="Shaders\skybox.frag">
       <Filter>Resource Files\Shaders</Filter>
     </None>

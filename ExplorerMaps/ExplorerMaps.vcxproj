@@ -261,6 +261,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     <None Include="Shaders\light.vert" />
     <None Include="Shaders\menu.frag" />
     <None Include="Shaders\menu.vert" />
+    <None Include="Shaders\post_processing.frag" />
     <None Include="Shaders\skybox.frag" />
     <None Include="Shaders\skybox.vert" />
     <None Include="Shaders\skybox_cubemap.frag" />
