@@ -395,6 +395,10 @@ bool VolumetricCloudRenderer::CreateNoiseTextures()
 	perlinWorleyTexture = CreateNoiseTexture3D(128);
 	worleyTexture = CreateNoiseTexture3D(32);
 	weatherTexture = CreateColorTexture2D(1024, 1024, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
+	glBindTexture(GL_TEXTURE_2D, weatherTexture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	if (perlinWorleyTexture == 0 || worleyTexture == 0 || weatherTexture == 0)
 	{
