@@ -709,7 +709,7 @@ void ApplyEnvironmentMode(EnvironmentMode mode, float manualTimeOfDay, float& su
     }
 }
 
-std::string BuildEnvironmentTitle(const EnvironmentMenuState& menu, EnvironmentMode mode, float manualTimeOfDay, const glm::vec3& normPos)
+std::string BuildEnvironmentTitle(const EnvironmentMenuState& menu, EnvironmentMode mode, float manualTimeOfDay, const glm::vec3& normPos, bool volumetricCloudsActive)
 {
     std::ostringstream title;
     title << std::fixed << std::setprecision(3);
@@ -727,6 +727,7 @@ std::string BuildEnvironmentTitle(const EnvironmentMenuState& menu, EnvironmentM
     {
         title << "Ambiente: " << EnvironmentModeName(mode)
               << " | Hora: " << FormatTimeOfDay(manualTimeOfDay)
+              << " | Nubes: " << (volumetricCloudsActive ? "VOL" : "Fallback")
               << " | Esc: menu | F3: clima | R: lluvia | X:" << normPos.x << " Y:" << normPos.y << " Z:" << normPos.z;
     }
 
@@ -2701,7 +2702,7 @@ int main(int argc, char** argv)
         {
             const glm::vec3 normPos = glm::clamp(camera.Position / targetSceneRadius, glm::vec3(-1.0f), glm::vec3(1.0f));
 
-            const std::string title = BuildEnvironmentTitle(environmentMenu, environmentMode, manualTimeOfDay, normPos);
+            const std::string title = BuildEnvironmentTitle(environmentMenu, environmentMode, manualTimeOfDay, normPos, useVolumetricClouds);
             glfwSetWindowTitle(window, title.c_str());
             lastTitleUpdate = currentFrame;
         }

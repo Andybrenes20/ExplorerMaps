@@ -571,6 +571,7 @@ void VolumetricCloudRenderer::RenderClouds(
 	glUniform1f(volumetricProgram.GetUniformLocation("coverage_multiplier"), glm::clamp(settings.coverage, 0.0f, 1.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("cloudSpeed"), glm::max(settings.speed * 450.0f, 0.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("crispiness"), glm::max(settings.crispiness * 40.0f, 0.05f));
+	glUniform1f(volumetricProgram.GetUniformLocation("cloudProjectionScale"), 0.45f);
 	glUniform1f(volumetricProgram.GetUniformLocation("curliness"), glm::max(settings.curliness, 0.01f));
 	glUniform1f(volumetricProgram.GetUniformLocation("absorption"), glm::max(settings.lightAbsorption * 0.01f, 0.0001f));
 	glUniform1f(volumetricProgram.GetUniformLocation("densityFactor"), glm::max(settings.density * 0.020f, 0.0001f));
