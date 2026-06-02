@@ -23,6 +23,8 @@ uniform float cloudTop;
 uniform float cloudFrequency;
 uniform vec3 cloudColor;
 uniform float rainIntensity;
+uniform float lightningIntensity;
+uniform float lightningSeed;
 uniform vec3 cameraPosition;
 uniform vec2 resolution;
 uniform bool useProceduralClouds = true;
@@ -121,6 +123,34 @@ float starLayer(vec2 p, float scale, float threshold, float sizeBoost)
 float remap01(float value, float minValue, float maxValue)
 {
 	return clamp((value - minValue) / (maxValue - minValue), 0.0, 1.0);
+}
+
+float SkyLightningBolt(vec2 uv, float seed)
+{
+	float skyMask = smoothstep(0.18, 0.58, uv.y);
+	float baseX = mix(0.12, 0.88, hash(vec2(seed, seed + 1.7)));
+	float yStart = 0.94;
+	float yEnd = mix(0.36, 0.70, hash(vec2(seed + 4.3, seed + 9.1)));
+	float activeY = smoothstep(yEnd, yEnd + 0.04, uv.y) * (1.0 - smoothstep(yStart - 0.04, yStart, uv.y));
+
+	float x = baseX;
+	x += sin((1.0 - uv.y) * 24.0 + seed * 18.0) * 0.030;
+	x += sin((1.0 - uv.y) * 66.0 + seed * 7.0) * 0.012;
+
+	float wrappedDistance = abs(uv.x - x);
+	wrappedDistance = min(wrappedDistance, 1.0 - wrappedDistance);
+	float pixelDistance = wrappedDistance * max(resolution.x, 1.0);
+	float core = exp(-pixelDistance * pixelDistance * 0.070) * activeY;
+	float glow = exp(-pixelDistance * pixelDistance * 0.010) * activeY * 0.30;
+
+	float branchSide = mix(-1.0, 1.0, hash(vec2(seed + 12.0, 0.4)));
+	float branchX = fract(x + branchSide * 0.13 * smoothstep(0.48, 0.74, uv.y));
+	float branchDistance = abs(uv.x - branchX);
+	branchDistance = min(branchDistance, 1.0 - branchDistance);
+	float branchMask = smoothstep(0.42, 0.58, uv.y) * (1.0 - smoothstep(0.72, 0.86, uv.y));
+	float branch = exp(-pow(branchDistance * max(resolution.x, 1.0), 2.0) * 0.080) * branchMask * 0.50;
+
+	return (core + glow + branch) * skyMask;
 }
 
 vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 cameraPos, float dayCloudVisibility, float nightAmount, float goldenHour, float rain)
@@ -372,6 +402,17 @@ void main()
 	{
 		vec4 volumetricClouds = renderRepoStyleClouds(dir, skySunDir, skyMoonDir, cameraPosition, dayCloudVisibility, nightAmount, goldenHour, rain);
 		skyColor.rgb = mix(skyColor.rgb, volumetricClouds.rgb, volumetricClouds.a);
+	}
+
+	float lightning = clamp(lightningIntensity, 0.0, 1.35);
+	if (lightning > 0.001)
+	{
+		float vertical = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+		float skyFlash = lightning * smoothstep(0.08, 0.82, vertical);
+		float bolt = SkyLightningBolt(starUv, lightningSeed) * lightning;
+		skyColor.rgb = mix(skyColor.rgb, vec3(0.68, 0.78, 0.96), clamp(skyFlash * 0.55, 0.0, 1.0));
+		skyColor.rgb += vec3(0.24, 0.31, 0.45) * skyFlash * 0.36;
+		skyColor.rgb += vec3(0.90, 0.97, 1.0) * bolt * 1.15;
 	}
 
 	FragColor = vec4(clamp(skyColor.rgb, 0.0, 1.0), skyColor.a);

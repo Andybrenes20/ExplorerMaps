@@ -89,6 +89,7 @@
       <Command>xcopy /E /I /Y "$(ProjectDir)Shaders" "$(OutDir)Shaders"
 xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
 xcopy /Y "$(ProjectDir)*.json" "$(OutDir)"
 xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
@@ -114,6 +115,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
       <Command>xcopy /E /I /Y "$(ProjectDir)Shaders" "$(OutDir)Shaders"
 xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
 xcopy /Y "$(ProjectDir)*.json" "$(OutDir)"
 xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
@@ -137,6 +139,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
       <Command>xcopy /E /I /Y "$(ProjectDir)Shaders" "$(OutDir)Shaders"
 xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
 xcopy /Y "$(ProjectDir)*.json" "$(OutDir)"
 xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
@@ -162,6 +165,7 @@ xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
       <Command>xcopy /E /I /Y "$(ProjectDir)Shaders" "$(OutDir)Shaders"
 xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
 xcopy /Y "$(ProjectDir)*.json" "$(OutDir)"
 xcopy /Y "$(SolutionDir)dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>

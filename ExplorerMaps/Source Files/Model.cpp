@@ -3,6 +3,7 @@
 #include<algorithm>
 #include<array>
 #include<cctype>
+#include<cmath>
 #include<cstring>
 #include<stdexcept>
 
@@ -14,12 +15,16 @@
 
 namespace
 {
-	constexpr float kMeshCullDistanceMultiplier = 1.55f;
+	constexpr float kMeshCullDistanceMultiplier = 1.15f;
 	constexpr float kCollisionEpsilon = 0.001f;
-	constexpr float kLodNearDistanceMultiplier = 0.35f;
-	constexpr float kLodMidDistanceMultiplier = 0.85f;
-	constexpr float kLodTinyMeshScreenRatio = 0.0025f;
-	constexpr float kLodSmallMeshScreenRatio = 0.0055f;
+	constexpr float kLodNearDistanceMultiplier = 0.22f;
+	constexpr float kLodMidDistanceMultiplier = 0.46f;
+	constexpr float kLodTinyMeshScreenRatio = 0.0085f;
+	constexpr float kLodSmallMeshScreenRatio = 0.0200f;
+	constexpr float kViewportCullPadding = 0.035f;
+	constexpr float kCityMaxRenderDistance = 1450.0f;
+	constexpr float kPeripheralLodStart = 0.54f;
+	constexpr float kPeripheralLodEnd = 1.0f;
 
 	std::string toLowerCopy(std::string value)
 	{
@@ -34,6 +39,23 @@ namespace
 		const std::string lowerExtension = toLowerCopy(extension);
 		return lowerPath.size() >= lowerExtension.size() &&
 			lowerPath.compare(lowerPath.size() - lowerExtension.size(), lowerExtension.size(), lowerExtension) == 0;
+	}
+
+	bool isVehicleAssetPath(const std::string& path)
+	{
+		const std::string lowerPath = toLowerCopy(path);
+		return lowerPath.find("coches") != std::string::npos ||
+			lowerPath.find("car_1") != std::string::npos ||
+			lowerPath.find("car/") != std::string::npos ||
+			lowerPath.find("car\\") != std::string::npos;
+	}
+
+	bool isHeavyVehicleWheelMaterial(const std::string& materialNameLower)
+	{
+		return materialNameLower == "tire" ||
+			materialNameLower == "rims" ||
+			materialNameLower == "brake" ||
+			materialNameLower.find("breaksredpaint") != std::string::npos;
 	}
 
 	std::string getDirectoryFromPath(const std::string& path)
@@ -199,6 +221,13 @@ namespace
 		}
 	};
 
+	struct ProjectedSphere
+	{
+		glm::vec2 center = glm::vec2(0.0f);
+		float radius = 0.0f;
+		bool valid = false;
+	};
+
 	glm::vec4 NormalizePlane(const glm::vec4& plane)
 	{
 		const float length = glm::length(glm::vec3(plane));
@@ -255,20 +284,80 @@ namespace
 		});
 	}
 
-	bool ShouldRenderByLod(float cameraDistance, float worldRadius, float sceneRadius, bool cameraInsideStructure)
+	float SmoothStep(float edge0, float edge1, float value)
+	{
+		const float t = std::clamp((value - edge0) / std::max(edge1 - edge0, 0.0001f), 0.0f, 1.0f);
+		return t * t * (3.0f - 2.0f * t);
+	}
+
+	ProjectedSphere ProjectSphereToViewport(const glm::mat4& viewProjection, const Camera& camera, const glm::vec3& worldCenter, float worldRadius)
+	{
+		ProjectedSphere projected;
+		const glm::vec4 clipCenter = viewProjection * glm::vec4(worldCenter, 1.0f);
+		if (std::abs(clipCenter.w) <= 0.0001f)
+		{
+			return projected;
+		}
+
+		const glm::vec2 centerNdc = glm::vec2(clipCenter) / clipCenter.w;
+		glm::vec3 right = glm::cross(camera.Orientation, camera.Up);
+		if (glm::length(right) <= 0.0001f)
+		{
+			right = glm::vec3(1.0f, 0.0f, 0.0f);
+		}
+		else
+		{
+			right = glm::normalize(right);
+		}
+
+		const glm::vec4 clipOffset = viewProjection * glm::vec4(worldCenter + right * worldRadius, 1.0f);
+		float radiusNdc = 0.0f;
+		if (std::abs(clipOffset.w) > 0.0001f)
+		{
+			radiusNdc = glm::length((glm::vec2(clipOffset) / clipOffset.w) - centerNdc);
+		}
+
+		if (!std::isfinite(radiusNdc) || radiusNdc <= 0.0001f)
+		{
+			const float distance = glm::length(camera.Position - worldCenter);
+			radiusNdc = worldRadius / std::max(distance, 0.001f);
+		}
+
+		projected.center = centerNdc;
+		projected.radius = radiusNdc;
+		projected.valid = std::isfinite(centerNdc.x) && std::isfinite(centerNdc.y);
+		return projected;
+	}
+
+	bool IsInsideViewport(const ProjectedSphere& projected)
+	{
+		if (!projected.valid)
+		{
+			return false;
+		}
+
+		const float paddedRadius = projected.radius + kViewportCullPadding;
+		return projected.center.x >= -1.0f - paddedRadius &&
+			projected.center.x <= 1.0f + paddedRadius &&
+			projected.center.y >= -1.0f - paddedRadius &&
+			projected.center.y <= 1.0f + paddedRadius;
+	}
+
+	bool ShouldRenderByLod(float cameraDistance, float screenRadius, const ProjectedSphere& projected, float sceneRadius, bool cameraInsideStructure)
 	{
 		if (cameraInsideStructure || cameraDistance <= sceneRadius * kLodNearDistanceMultiplier)
 		{
 			return true;
 		}
 
-		const float apparentSize = worldRadius / std::max(cameraDistance, 0.001f);
+		const float viewportDistance = std::max(std::abs(projected.center.x), std::abs(projected.center.y));
+		const float peripheralBoost = 1.0f + SmoothStep(kPeripheralLodStart, kPeripheralLodEnd, viewportDistance) * 0.85f;
 		if (cameraDistance > sceneRadius * kLodMidDistanceMultiplier)
 		{
-			return apparentSize >= kLodSmallMeshScreenRatio;
+			return screenRadius >= kLodSmallMeshScreenRatio * peripheralBoost;
 		}
 
-		return apparentSize >= kLodTinyMeshScreenRatio;
+		return screenRadius >= kLodTinyMeshScreenRatio * peripheralBoost;
 	}
 }
 
@@ -276,10 +365,14 @@ Model::Model(const char* file)
 {
 	Model::file = file;
 	const std::string path = file;
+	lightweightVehicleAsset = isVehicleAssetPath(path);
 
 	if (hasExtension(path, ".glb") || hasExtension(path, ".gltf"))
 	{
-		loadAssimpCollision(file);
+		if (!lightweightVehicleAsset)
+		{
+			loadAssimpCollision(file);
+		}
 		loadAssimpModel(file);
 		return;
 	}
@@ -295,9 +388,10 @@ void Model::Draw(Shader& shader, Camera& camera, const glm::mat4& worldTransform
 
 	const float worldScale = glm::length(glm::vec3(worldTransform[0]));
 	const float sceneRadius = GetRadius() * worldScale;
-	const float maxVisibleDistance = std::max(
-		GetRadius() * worldScale * (cameraInsideStructure ? 0.60f : kMeshCullDistanceMultiplier),
-		220.0f);
+	const float sceneCullDistance = GetRadius() * worldScale * (cameraInsideStructure ? 0.60f : kMeshCullDistanceMultiplier);
+	const float maxVisibleDistance = cameraInsideStructure
+		? std::max(sceneCullDistance, 220.0f)
+		: std::min(std::max(sceneCullDistance, 220.0f), kCityMaxRenderDistance);
 	const Frustum frustum = BuildFrustum(camera.cameraMatrix);
 
 	// Go over all meshes and draw each one
@@ -311,11 +405,11 @@ void Model::Draw(Shader& shader, Camera& camera, const glm::mat4& worldTransform
 			const float visibleDistance = maxVisibleDistance + worldRadius;
 			const float visibleDistanceSquared = visibleDistance * visibleDistance;
 			const glm::vec3 toMesh = camera.Position - worldCenter;
+			const float distanceSquared = glm::dot(toMesh, toMesh);
 			if (cameraInsideStructure && glm::dot(toMesh, toMesh) < (worldRadius * worldRadius))
 			{
 				continue;
 			}
-			const float distanceSquared = glm::dot(toMesh, toMesh);
 			if (distanceSquared > visibleDistanceSquared)
 			{
 				continue;
@@ -324,7 +418,12 @@ void Model::Draw(Shader& shader, Camera& camera, const glm::mat4& worldTransform
 			{
 				continue;
 			}
-			if (!ShouldRenderByLod(std::sqrt(distanceSquared), worldRadius, sceneRadius, cameraInsideStructure))
+			const ProjectedSphere projected = ProjectSphereToViewport(camera.cameraMatrix, camera, worldCenter, worldRadius);
+			if (!IsInsideViewport(projected))
+			{
+				continue;
+			}
+			if (!ShouldRenderByLod(std::sqrt(distanceSquared), projected.radius, projected, sceneRadius, cameraInsideStructure))
 			{
 				continue;
 			}
@@ -480,6 +579,18 @@ bool Model::TrySnapToWalkableSurface(
 			const glm::vec3& a = collisionMesh.vertices[collisionMesh.indices[index]];
 			const glm::vec3& b = collisionMesh.vertices[collisionMesh.indices[index + 1]];
 			const glm::vec3& c = collisionMesh.vertices[collisionMesh.indices[index + 2]];
+			const float triangleMinX = std::min(a.x, std::min(b.x, c.x));
+			const float triangleMaxX = std::max(a.x, std::max(b.x, c.x));
+			const float triangleMinZ = std::min(a.z, std::min(b.z, c.z));
+			const float triangleMaxZ = std::max(a.z, std::max(b.z, c.z));
+			if (localFeetPosition.x < triangleMinX - maxHorizontalDistance ||
+				localFeetPosition.x > triangleMaxX + maxHorizontalDistance ||
+				localFeetPosition.z < triangleMinZ - maxHorizontalDistance ||
+				localFeetPosition.z > triangleMaxZ + maxHorizontalDistance)
+			{
+				continue;
+			}
+
 			const glm::vec3 triangleNormal = glm::cross(b - a, c - a);
 			const float normalLength = glm::length(triangleNormal);
 			if (normalLength <= 0.0001f)
@@ -1128,6 +1239,10 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 		aiString materialName;
 		material->Get(AI_MATKEY_NAME, materialName);
 		const std::string materialNameLower = toLowerCopy(materialName.C_Str());
+		if (lightweightVehicleAsset && isHeavyVehicleWheelMaterial(materialNameLower))
+		{
+			return;
+		}
 		const bool isThreadMaterial = materialNameLower.find("thread") != std::string::npos;
 		const bool isTireMaterial = isThreadMaterial || materialNameLower.find("tire") != std::string::npos;
 		aiColor4D baseColor;

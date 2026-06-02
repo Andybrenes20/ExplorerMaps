@@ -24,6 +24,8 @@ struct SkyCloudSettings
 	float cloudFrequency = 0.80f;
 	glm::vec3 cloudColor = glm::vec3(98.0f, 105.0f, 120.0f) / 255.0f;
 	float rainIntensity = 0.0f;
+	float lightningIntensity = 0.0f;
+	float lightningSeed = 0.0f;
 	glm::vec3 cameraPosition = glm::vec3(0.0f);
 	bool postProcessing = true;
 	bool godRays = false;

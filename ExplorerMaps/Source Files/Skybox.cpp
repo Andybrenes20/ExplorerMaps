@@ -190,6 +190,8 @@ void Skybox::Draw(const Camera& camera, float FOVdeg, float nearPlane, float far
 	glUniform1f(glGetUniformLocation(shader.ID, "cloudFrequency"), cloudSettings.cloudFrequency);
 	glUniform3f(glGetUniformLocation(shader.ID, "cloudColor"), cloudSettings.cloudColor.r, cloudSettings.cloudColor.g, cloudSettings.cloudColor.b);
 	glUniform1f(glGetUniformLocation(shader.ID, "rainIntensity"), cloudSettings.rainIntensity);
+	glUniform1f(glGetUniformLocation(shader.ID, "lightningIntensity"), cloudSettings.lightningIntensity);
+	glUniform1f(glGetUniformLocation(shader.ID, "lightningSeed"), cloudSettings.lightningSeed);
 	glUniform3f(glGetUniformLocation(shader.ID, "cameraPosition"), camera.Position.x, camera.Position.y, camera.Position.z);
 	glUniform2f(glGetUniformLocation(shader.ID, "resolution"), static_cast<float>(camera.width), static_cast<float>(camera.height));
 	glUniform1i(glGetUniformLocation(shader.ID, "useProceduralClouds"), proceduralCloudsEnabled ? 1 : 0);

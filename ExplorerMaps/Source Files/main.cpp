@@ -20,6 +20,8 @@ namespace fs = std::filesystem;
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 
 extern "C"
 {
@@ -45,7 +47,7 @@ const unsigned int height = 1080;
 const float targetSceneRadius = 1800.0f;
 const float cameraFov = 55.0f;
 const float cameraNearPlane = 0.05f;
-const float cameraFarPlane = 6000.0f;
+const float cameraFarPlane = 3600.0f;
 const float celestialOrbitRadius = 3200.0f;
 const float maxSunHeight = 3000.0f;
 const float maxMoonHeightFactor = 0.82f;
@@ -61,7 +63,7 @@ const float cameraCollisionRadius = 6.0f;
 
 // --- Opciones ----------------w--------------------------
 const bool showCoordinatesInWindowTitle = true;
-const bool useFastRenderMode = false;
+const bool useFastRenderMode = true;
 const glm::vec3 blockedZoneMin = glm::vec3(240.0f, -260.0f, 360.0f);
 const glm::vec3 blockedZoneMax = glm::vec3(310.0f, -150.0f, 435.0f);
 
@@ -74,7 +76,8 @@ const int lampGlowIndexCount = lampGlowSectors * (lampGlowSectors - 1) * 6;
 const float lampGlowSize = 1.0f;
 const float lampCoreSize = 0.20f;
 const float lampHaloSize = 20.0f;
-constexpr std::size_t maxLampLightCount = 12;
+constexpr std::size_t maxLampLightCount = 8;
+constexpr std::size_t maxAutomaticStreetLampCount = 8;
 const std::array<glm::vec3, 2> defaultLampLightPositions =
 {
     glm::vec3(130.0f, -159.0f, 572.0f),
@@ -83,6 +86,9 @@ const std::array<glm::vec3, 2> defaultLampLightPositions =
 const glm::vec3 defaultLampLightColor = glm::vec3(1.0f, 0.92f, 0.78f);
 const float defaultLampLightRadius = 50.0f;
 const float defaultLampLightIntensity = 2.10f;
+const float streetLampGridBaseZ = 572.0f;
+const float streetLampGridSpacingZ = 154.0f;
+const float streetLampRenderDistance = 470.0f;
 
 enum class EnvironmentMode
 {
@@ -155,15 +161,26 @@ struct WalkAnimationState
     float amount = 0.0f;
 };
 
+struct GroundSnapCache
+{
+    glm::vec3 queryPosition = glm::vec3(0.0f);
+    glm::vec3 snappedPosition = glm::vec3(0.0f);
+    float queryTime = -100.0f;
+    bool valid = false;
+};
+
 struct DrivableCarState
 {
     glm::vec3 position = glm::vec3(150.0f, -179.0f, 620.0f);
     float yawDegrees = -90.0f;
     float visualYawDegrees = -90.0f;
+    float yawRateDegrees = 0.0f;
     float speed = 0.0f;
     float steeringAmount = 0.0f;
+    float wheelSpinDegrees = 0.0f;
     float cameraYawOffsetDegrees = 0.0f;
     float cameraHeightOffset = 0.0f;
+    GroundSnapCache groundSnapCache;
     bool groundHeightInitialized = false;
     bool driving = false;
     bool interactWasDown = false;
@@ -179,6 +196,223 @@ struct GameplayGamepadInput
     float rightTrigger = 0.0f;
     float leftTrigger = 0.0f;
     bool interactDown = false;
+};
+
+struct LightningState
+{
+    float flashStart = -100.0f;
+    float flashDuration = 0.0f;
+    float flashStrength = 0.0f;
+    float nextStrikeTime = 0.0f;
+    float seed = 0.0f;
+};
+
+class GameAudio
+{
+#ifdef _WIN32
+    struct AudioChannel
+    {
+        std::wstring alias;
+        bool opened = false;
+        bool playing = false;
+    };
+#endif
+
+public:
+    void Init()
+    {
+#ifdef _WIN32
+        if (initialized)
+            return;
+
+        OpenChannel(cityDay, "Sonidos/City.mp3", 420);
+        OpenChannel(cityNight, "Sonidos/City_nigth.mp3", 430);
+        OpenChannel(thunder, "Sonidos/Rayos.mp3", 940);
+        OpenChannel(walk, "Sonidos/Caminar.mp3", 520);
+        OpenChannel(run, "Sonidos/Correr.mp3", 620);
+        initialized = true;
+#endif
+    }
+
+    void Shutdown()
+    {
+#ifdef _WIN32
+        StopAmbient();
+        StopMovement();
+        CloseChannel(cityDay);
+        CloseChannel(cityNight);
+        CloseChannel(thunder);
+        CloseChannel(walk);
+        CloseChannel(run);
+        initialized = false;
+#endif
+    }
+
+    void UpdateAmbient(bool day)
+    {
+#ifdef _WIN32
+        AudioChannel* target = day ? &cityDay : &cityNight;
+        if (ambientChannel == target)
+            return;
+
+        StopAmbient();
+        PlayLoop(*target);
+        ambientChannel = target->opened ? target : nullptr;
+#else
+        (void)day;
+#endif
+    }
+
+    void StopAmbient()
+    {
+#ifdef _WIN32
+        if (ambientChannel != nullptr)
+        {
+            StopChannel(*ambientChannel);
+            ambientChannel = nullptr;
+        }
+#endif
+    }
+
+    void UpdateMovement(bool walking, bool running)
+    {
+#ifdef _WIN32
+        AudioChannel* target = nullptr;
+        if (running)
+            target = &run;
+        else if (walking)
+            target = &walk;
+
+        if (movementChannel == target)
+            return;
+
+        StopMovement();
+        if (target != nullptr)
+        {
+            PlayLoop(*target);
+            movementChannel = target->opened ? target : nullptr;
+        }
+#else
+        (void)walking;
+        (void)running;
+#endif
+    }
+
+    void StopMovement()
+    {
+#ifdef _WIN32
+        if (movementChannel != nullptr)
+        {
+            StopChannel(*movementChannel);
+            movementChannel = nullptr;
+        }
+#endif
+    }
+
+    void PlayThunder()
+    {
+#ifdef _WIN32
+        PlayOneShot(thunder);
+#endif
+    }
+
+private:
+#ifdef _WIN32
+    bool initialized = false;
+    AudioChannel cityDay{ L"audio_city_day" };
+    AudioChannel cityNight{ L"audio_city_night" };
+    AudioChannel thunder{ L"audio_thunder" };
+    AudioChannel walk{ L"audio_walk" };
+    AudioChannel run{ L"audio_run" };
+    AudioChannel* ambientChannel = nullptr;
+    AudioChannel* movementChannel = nullptr;
+
+    static std::wstring QuotePath(const fs::path& path)
+    {
+        return L"\"" + path.wstring() + L"\"";
+    }
+
+    static bool SendMciCommand(const std::wstring& command)
+    {
+        return mciSendStringW(command.c_str(), nullptr, 0, nullptr) == 0;
+    }
+
+    static fs::path ResolveSoundPath(const char* relativePath)
+    {
+        const fs::path direct(relativePath);
+        if (fs::exists(direct))
+            return direct;
+
+        const fs::path projectPath = fs::path("..") / ".." / "ExplorerMaps" / relativePath;
+        if (fs::exists(projectPath))
+            return projectPath;
+
+        return direct;
+    }
+
+    void OpenChannel(AudioChannel& channel, const char* relativePath, int volume)
+    {
+        CloseChannel(channel);
+        const fs::path path = ResolveSoundPath(relativePath);
+        if (!fs::exists(path))
+            return;
+
+        const std::wstring alias = channel.alias;
+        const std::wstring openTyped = L"open " + QuotePath(path) + L" type mpegvideo alias " + alias;
+        const std::wstring openDefault = L"open " + QuotePath(path) + L" alias " + alias;
+        channel.opened = SendMciCommand(openTyped) || SendMciCommand(openDefault);
+        if (channel.opened)
+        {
+            SendMciCommand(L"setaudio " + alias + L" volume to " + std::to_wstring(volume));
+        }
+    }
+
+    void CloseChannel(AudioChannel& channel)
+    {
+        if (!channel.opened)
+            return;
+
+        StopChannel(channel);
+        SendMciCommand(L"close " + channel.alias);
+        channel.opened = false;
+    }
+
+    void PlayLoop(AudioChannel& channel)
+    {
+        if (!channel.opened || channel.playing)
+            return;
+
+        SendMciCommand(L"seek " + channel.alias + L" to start");
+        channel.playing = SendMciCommand(L"play " + channel.alias + L" repeat");
+    }
+
+    void PlayOneShot(AudioChannel& channel)
+    {
+        if (!channel.opened)
+            return;
+
+        SendMciCommand(L"stop " + channel.alias);
+        SendMciCommand(L"seek " + channel.alias + L" to start");
+        SendMciCommand(L"play " + channel.alias);
+    }
+
+    void StopChannel(AudioChannel& channel)
+    {
+        if (!channel.opened)
+            return;
+
+        SendMciCommand(L"stop " + channel.alias);
+        SendMciCommand(L"seek " + channel.alias + L" to start");
+        channel.playing = false;
+    }
+#endif
+};
+
+struct ProceduralCarWheelLayout
+{
+    std::array<glm::vec3, 4> centers{};
+    float radius = 1.0f;
+    float width = 0.5f;
 };
 
 struct MainMenuState
@@ -264,6 +498,61 @@ float MoveAngleTowards(float currentDegrees, float targetDegrees, float maxDelta
     return currentDegrees + delta;
 }
 
+float DistanceSquaredXZ(const glm::vec3& a, const glm::vec3& b)
+{
+    const float dx = a.x - b.x;
+    const float dz = a.z - b.z;
+    return dx * dx + dz * dz;
+}
+
+bool TrySnapToWalkableSurfaceCached(
+    const Model& model,
+    const glm::vec3& position,
+    const glm::mat4& worldTransform,
+    float probeRadius,
+    float eyeHeight,
+    float maxStepUp,
+    float maxDropDown,
+    float maxSlopeDegrees,
+    GroundSnapCache& cache,
+    float currentFrame,
+    float refreshDistance,
+    float maxCacheAge,
+    glm::vec3& snappedPosition)
+{
+    const float refreshDistanceSquared = refreshDistance * refreshDistance;
+    const float verticalTolerance = std::max(maxStepUp * 0.45f, 1.0f);
+    if (cache.valid &&
+        currentFrame - cache.queryTime <= maxCacheAge &&
+        DistanceSquaredXZ(position, cache.queryPosition) <= refreshDistanceSquared &&
+        std::abs(position.y - cache.queryPosition.y) <= verticalTolerance)
+    {
+        snappedPosition = position;
+        snappedPosition.y = cache.snappedPosition.y;
+        return true;
+    }
+
+    if (model.TrySnapToWalkableSurface(
+        position,
+        worldTransform,
+        probeRadius,
+        eyeHeight,
+        maxStepUp,
+        maxDropDown,
+        maxSlopeDegrees,
+        snappedPosition))
+    {
+        cache.queryPosition = position;
+        cache.snappedPosition = snappedPosition;
+        cache.queryTime = currentFrame;
+        cache.valid = true;
+        return true;
+    }
+
+    cache.valid = false;
+    return false;
+}
+
 glm::vec3 ComputeCarLocalAnchorOffset(const Model& carModel)
 {
     const glm::vec3 boundsMin = carModel.GetBoundsMin();
@@ -272,12 +561,48 @@ glm::vec3 ComputeCarLocalAnchorOffset(const Model& carModel)
     return glm::vec3(-boundsCenter.x, -boundsMin.y, -boundsCenter.z);
 }
 
-glm::mat4 BuildCarTransform(const DrivableCarState& car, const glm::vec3& localAnchorOffset)
+float ComputeCarVisualScale(const Model& carModel)
+{
+    const glm::vec3 boundsMin = carModel.GetBoundsMin();
+    const glm::vec3 boundsMax = carModel.GetBoundsMax();
+    const glm::vec3 extents = boundsMax - boundsMin;
+    const float modelLength = std::max(std::max(extents.x, extents.z), 0.001f);
+    return 42.0f / modelLength;
+}
+
+ProceduralCarWheelLayout ComputeCarWheelLayout(const Model& carModel)
+{
+    const glm::vec3 boundsMin = carModel.GetBoundsMin();
+    const glm::vec3 boundsMax = carModel.GetBoundsMax();
+    const glm::vec3 boundsCenter = (boundsMin + boundsMax) * 0.5f;
+    const glm::vec3 extents = boundsMax - boundsMin;
+    const float widthX = std::max(extents.x, 0.001f);
+    const float lengthZ = std::max(extents.z, 0.001f);
+
+    ProceduralCarWheelLayout layout;
+    layout.radius = glm::clamp(lengthZ * 0.088f, 0.56f, 1.02f);
+    layout.width = glm::clamp(widthX * 0.055f, 0.24f, 0.48f);
+
+    const float sideOffset = widthX * 0.29f;
+    const float wheelY = boundsMin.y + layout.radius * 0.84f;
+    const float frontZ = boundsMin.z + lengthZ * 0.26f;
+    const float rearZ = boundsMax.z - lengthZ * 0.25f;
+
+    layout.centers = {
+        glm::vec3(boundsCenter.x - sideOffset, wheelY, frontZ),
+        glm::vec3(boundsCenter.x + sideOffset, wheelY, frontZ),
+        glm::vec3(boundsCenter.x - sideOffset, wheelY, rearZ),
+        glm::vec3(boundsCenter.x + sideOffset, wheelY, rearZ)
+    };
+    return layout;
+}
+
+glm::mat4 BuildCarTransform(const DrivableCarState& car, const glm::vec3& localAnchorOffset, float visualScale)
 {
     constexpr float carVisualYawOffset = 90.0f;
     return glm::translate(glm::mat4(1.0f), car.position) *
         glm::rotate(glm::mat4(1.0f), glm::radians(car.visualYawDegrees + carVisualYawOffset), glm::vec3(0.0f, 1.0f, 0.0f)) *
-        glm::scale(glm::mat4(1.0f), glm::vec3(18.0f)) *
+        glm::scale(glm::mat4(1.0f), glm::vec3(visualScale)) *
         glm::translate(glm::mat4(1.0f), localAnchorOffset);
 }
 
@@ -286,11 +611,80 @@ void DrawDrivableCar(
     Camera& camera,
     Model& carModel,
     const DrivableCarState& car,
-    const glm::vec3& localAnchorOffset)
+    const glm::vec3& localAnchorOffset,
+    float visualScale)
 {
     glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.46f);
-    carModel.Draw(shader, camera, BuildCarTransform(car, localAnchorOffset));
+    carModel.Draw(shader, camera, BuildCarTransform(car, localAnchorOffset, visualScale));
     glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.0f);
+}
+
+void DrawProceduralCarWheels(
+    Shader& lightShader,
+    Camera& camera,
+    GLuint wheelVAO,
+    GLsizei wheelIndexCount,
+    GLuint spokeCubeVAO,
+    const DrivableCarState& car,
+    const ProceduralCarWheelLayout& wheelLayout,
+    const glm::vec3& localAnchorOffset,
+    float visualScale,
+    const glm::vec3& dirLightDirection)
+{
+    if (wheelIndexCount <= 0)
+        return;
+
+    const glm::mat4 carBaseTransform = BuildCarTransform(car, localAnchorOffset, visualScale);
+    const float frontWheelSteerDegrees = car.steeringAmount * 18.0f;
+
+    lightShader.Activate();
+    camera.Matrix(lightShader, "camMatrix");
+    glUniform3f(glGetUniformLocation(lightShader.ID, "dirLightDirection"), dirLightDirection.x, dirLightDirection.y, dirLightDirection.z);
+
+    auto drawCylinder = [&](const glm::mat4& model, const glm::vec4& color)
+    {
+        glUniformMatrix4fv(glGetUniformLocation(lightShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniform4f(glGetUniformLocation(lightShader.ID, "lightColor"), color.x, color.y, color.z, color.w);
+        glDrawElements(GL_TRIANGLES, wheelIndexCount, GL_UNSIGNED_INT, 0);
+    };
+
+    glBindVertexArray(wheelVAO);
+    std::array<glm::mat4, 4> wheelBases{};
+    for (std::size_t i = 0; i < wheelLayout.centers.size(); ++i)
+    {
+        const bool frontWheel = i < 2;
+        const float steerDegrees = frontWheel ? frontWheelSteerDegrees : 0.0f;
+        const glm::mat4 wheelBase =
+            carBaseTransform *
+            glm::translate(glm::mat4(1.0f), wheelLayout.centers[i]) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(steerDegrees), glm::vec3(0.0f, 1.0f, 0.0f)) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(car.wheelSpinDegrees), glm::vec3(1.0f, 0.0f, 0.0f));
+        wheelBases[i] = wheelBase;
+
+        drawCylinder(
+            wheelBase * glm::scale(glm::mat4(1.0f), glm::vec3(wheelLayout.width, wheelLayout.radius, wheelLayout.radius)),
+            glm::vec4(0.030f, 0.030f, 0.032f, 1.0f));
+        drawCylinder(
+            wheelBase * glm::scale(glm::mat4(1.0f), glm::vec3(wheelLayout.width * 1.08f, wheelLayout.radius * 0.48f, wheelLayout.radius * 0.48f)),
+            glm::vec4(0.58f, 0.60f, 0.62f, 1.0f));
+    }
+
+    glBindVertexArray(spokeCubeVAO);
+    for (const glm::mat4& wheelBase : wheelBases)
+    {
+        for (int spoke = 0; spoke < 2; ++spoke)
+        {
+            const glm::mat4 spokeModel =
+                wheelBase *
+                glm::rotate(glm::mat4(1.0f), glm::radians(90.0f * static_cast<float>(spoke)), glm::vec3(1.0f, 0.0f, 0.0f)) *
+                glm::scale(glm::mat4(1.0f), glm::vec3(wheelLayout.width * 1.18f, wheelLayout.radius * 0.10f, wheelLayout.radius * 1.16f));
+            glUniformMatrix4fv(glGetUniformLocation(lightShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(spokeModel));
+            glUniform4f(glGetUniformLocation(lightShader.ID, "lightColor"), 0.78f, 0.80f, 0.82f, 1.0f);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
+    }
+
+    glBindVertexArray(0);
 }
 
 bool IsLookingAtCar(const Camera& camera, const DrivableCarState& car)
@@ -330,7 +724,7 @@ void UpdateDrivableCar(
             car.driving = true;
             camera.flyMode = false;
             camera.firstClick = true;
-            interaction.message = "CONDUCIENDO: WASD, SPACE FRENO, E SALIR";
+            interaction.message = "CONDUCIENDO: WASD/R2-L2, SPACE FRENO, E/CUADRADO SALIR";
             interaction.messageUntil = currentFrame + 2.4f;
         }
     }
@@ -366,32 +760,40 @@ void UpdateDrivableCar(
     car.speed = glm::clamp(car.speed, -45.0f, 130.0f);
 
     float targetSteering =
-        (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f) -
-        (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f);
+        (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f) -
+        (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f);
     if (std::abs(gamepad.leftX) > 0.01f)
-        targetSteering = gamepad.leftX;
+        targetSteering = -gamepad.leftX;
 
-    targetSteering *= 0.90f;
+    targetSteering *= 0.86f;
 
-    const float steeringResponse = std::abs(targetSteering) > std::abs(car.steeringAmount) ? 7.5f : 9.0f;
+    const float steeringResponse = std::abs(targetSteering) > std::abs(car.steeringAmount) ? 11.0f : 15.0f;
     car.steeringAmount = glm::mix(
         car.steeringAmount,
         glm::clamp(targetSteering, -1.0f, 1.0f),
         glm::clamp(deltaTime * steeringResponse, 0.0f, 1.0f));
 
     const float speedAbs = std::abs(car.speed);
-    const float steeringGrip = glm::smoothstep(3.0f, 22.0f, speedAbs);
-    const float highSpeedStability = glm::mix(1.0f, 0.50f, glm::smoothstep(58.0f, 130.0f, speedAbs));
-    const float maxYawRateDegrees = glm::mix(68.0f, 38.0f, glm::smoothstep(45.0f, 130.0f, speedAbs));
-    const float yawRateDegrees = car.steeringAmount * steeringGrip * highSpeedStability * maxYawRateDegrees;
-    car.yawDegrees += yawRateDegrees * deltaTime * (car.speed >= 0.0f ? 1.0f : -1.0f);
-    car.visualYawDegrees = MoveAngleTowards(car.visualYawDegrees, car.yawDegrees, 48.0f * deltaTime);
+    const float lowSpeedGrip = glm::smoothstep(2.0f, 12.0f, speedAbs);
+    const float turnSpeed = glm::mix(0.52f, 0.30f, glm::smoothstep(45.0f, 130.0f, speedAbs));
+    float targetYawRateDegrees = car.steeringAmount * car.speed * turnSpeed * lowSpeedGrip;
+    const float maxYawRateDegrees = glm::mix(56.0f, 34.0f, glm::smoothstep(45.0f, 130.0f, speedAbs));
+    targetYawRateDegrees = glm::clamp(targetYawRateDegrees, -maxYawRateDegrees, maxYawRateDegrees);
+    car.yawRateDegrees = glm::mix(car.yawRateDegrees, targetYawRateDegrees, glm::clamp(deltaTime * 7.0f, 0.0f, 1.0f));
+    car.yawDegrees += car.yawRateDegrees * deltaTime;
+    car.visualYawDegrees = MoveAngleTowards(car.visualYawDegrees, car.yawDegrees, 96.0f * deltaTime);
+
+    constexpr float wheelRadiusWorld = 6.2f;
+    car.wheelSpinDegrees = std::fmod(
+        car.wheelSpinDegrees + glm::degrees((car.speed / wheelRadiusWorld) * deltaTime),
+        360.0f);
 
     const glm::vec3 previousCarPosition = car.position;
     car.position += CarForward(car.yawDegrees) * car.speed * deltaTime;
 
     glm::vec3 snappedCarPosition;
-    if (cityModel.TrySnapToWalkableSurface(
+    if (TrySnapToWalkableSurfaceCached(
+        cityModel,
         car.position + glm::vec3(0.0f, 10.0f, 0.0f),
         sceneModelTransform,
         18.0f,
@@ -399,6 +801,10 @@ void UpdateDrivableCar(
         18.0f,
         55.0f,
         walkMaxSlopeDegrees,
+        car.groundSnapCache,
+        currentFrame,
+        5.5f,
+        0.16f,
         snappedCarPosition))
     {
         const float targetGroundY = snappedCarPosition.y - 10.0f;
@@ -505,6 +911,57 @@ float TimeOfDayToSunAngle(float timeOfDay)
 float TimeOfDayToClockHours(float timeOfDay)
 {
     return WrapTimeOfDay(timeOfDay) * 24.0f + 6.0f;
+}
+
+float FractFloat(float value)
+{
+    return value - std::floor(value);
+}
+
+float LightningNoise(float seed)
+{
+    return FractFloat(std::sin(seed * 12.9898f + 78.233f) * 43758.5453f);
+}
+
+void TriggerLightning(LightningState& lightning, float currentFrame, float strength = 1.0f)
+{
+    lightning.flashStart = currentFrame;
+    lightning.flashDuration = 0.36f + LightningNoise(currentFrame + 3.7f) * 0.24f;
+    lightning.flashStrength = strength * (0.75f + LightningNoise(currentFrame + 9.1f) * 0.35f);
+    lightning.seed = LightningNoise(currentFrame + lightning.flashStrength * 17.0f);
+    lightning.nextStrikeTime = currentFrame + 0.75f + LightningNoise(currentFrame + 21.0f) * 1.15f;
+}
+
+float LightningAmount(const LightningState& lightning, float currentFrame)
+{
+    if (lightning.flashDuration <= 0.0f)
+        return 0.0f;
+
+    const float t = (currentFrame - lightning.flashStart) / lightning.flashDuration;
+    if (t < 0.0f || t > 1.0f)
+        return 0.0f;
+
+    const float firstPulse = 1.0f - glm::smoothstep(0.0f, 0.18f, t);
+    const float secondPulse = glm::smoothstep(0.16f, 0.24f, t) *
+        (1.0f - glm::smoothstep(0.24f, 0.52f, t)) * 0.78f;
+    const float afterGlow = (1.0f - glm::smoothstep(0.48f, 1.0f, t)) * 0.20f;
+    const float flicker = 0.86f + 0.14f * std::sin((t + lightning.seed) * 72.0f);
+    return glm::clamp((firstPulse + secondPulse + afterGlow) * lightning.flashStrength * flicker, 0.0f, 1.35f);
+}
+
+void UpdateLightning(LightningState& lightning, float currentFrame, float rainIntensity)
+{
+    if (rainIntensity <= 0.08f)
+    {
+        lightning.nextStrikeTime = currentFrame + 1.2f;
+        return;
+    }
+
+    if (lightning.nextStrikeTime <= 0.01f)
+        lightning.nextStrikeTime = currentFrame + 0.75f;
+
+    if (currentFrame >= lightning.nextStrikeTime)
+        TriggerLightning(lightning, currentFrame, 0.90f + rainIntensity * 0.55f);
 }
 
 std::string FormatTimeOfDay(float timeOfDay)
@@ -1791,6 +2248,74 @@ void createSphere(GLuint& VAO, GLuint& VBO, GLuint& EBO, GLsizei& indexCount, in
     glBindVertexArray(0);
 }
 
+void createCylinder(GLuint& VAO, GLuint& VBO, GLuint& EBO, GLsizei& indexCount, int sectors)
+{
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+    const float sectorStep = 2.0f * 3.14159f / static_cast<float>(sectors);
+
+    for (int i = 0; i <= sectors; ++i)
+    {
+        const float angle = i * sectorStep;
+        const float y = std::cos(angle);
+        const float z = std::sin(angle);
+        vertices.insert(vertices.end(), { -0.5f, y, z, 0.0f, y, z });
+        vertices.insert(vertices.end(), { 0.5f, y, z, 0.0f, y, z });
+    }
+
+    for (int i = 0; i < sectors; ++i)
+    {
+        const unsigned int base = static_cast<unsigned int>(i * 2);
+        indices.insert(indices.end(), {
+            base, base + 1, base + 2,
+            base + 1, base + 3, base + 2
+        });
+    }
+
+    const unsigned int leftCenter = static_cast<unsigned int>(vertices.size() / 6);
+    vertices.insert(vertices.end(), { -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f });
+    for (int i = 0; i <= sectors; ++i)
+    {
+        const float angle = i * sectorStep;
+        vertices.insert(vertices.end(), { -0.5f, std::cos(angle), std::sin(angle), -1.0f, 0.0f, 0.0f });
+    }
+
+    const unsigned int rightCenter = static_cast<unsigned int>(vertices.size() / 6);
+    vertices.insert(vertices.end(), { 0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f });
+    for (int i = 0; i <= sectors; ++i)
+    {
+        const float angle = i * sectorStep;
+        vertices.insert(vertices.end(), { 0.5f, std::cos(angle), std::sin(angle), 1.0f, 0.0f, 0.0f });
+    }
+
+    for (int i = 0; i < sectors; ++i)
+    {
+        indices.insert(indices.end(), {
+            leftCenter, leftCenter + 1u + static_cast<unsigned int>(i + 1), leftCenter + 1u + static_cast<unsigned int>(i),
+            rightCenter, rightCenter + 1u + static_cast<unsigned int>(i), rightCenter + 1u + static_cast<unsigned int>(i + 1)
+        });
+    }
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+    indexCount = static_cast<GLsizei>(indices.size());
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
 void createCube(GLuint& VAO, GLuint& VBO)
 {
     const float vertices[] =
@@ -1854,6 +2379,74 @@ void createCube(GLuint& VAO, GLuint& VBO)
 glm::mat4 BuildSceneModelTransform(const Entity& entity, const glm::mat4& baseModelTransform)
 {
     return ComposeEntityMatrix(entity) * baseModelTransform;
+}
+
+struct RuntimeLampCandidate
+{
+    Light light;
+    float distanceSquared = 0.0f;
+};
+
+void AddRuntimeLampCandidate(std::vector<RuntimeLampCandidate>& candidates, const Light& light, const glm::vec3& focusPosition)
+{
+    if (light.radius <= 1.0f || light.intensity <= 0.01f)
+        return;
+
+    const float distanceSquared = DistanceSquaredXZ(light.position, focusPosition);
+    const float cullDistance = std::max(streetLampRenderDistance, light.radius * 4.0f);
+    if (distanceSquared > cullDistance * cullDistance)
+        return;
+
+    candidates.push_back({ light, distanceSquared });
+}
+
+std::vector<Light> BuildRuntimeLampLights(const std::vector<Light>& sceneLights, const glm::vec3& focusPosition)
+{
+    std::vector<RuntimeLampCandidate> candidates;
+    candidates.reserve(sceneLights.size() + maxAutomaticStreetLampCount);
+
+    for (const Light& light : sceneLights)
+        AddRuntimeLampCandidate(candidates, light, focusPosition);
+
+    const int centerZIndex = static_cast<int>(std::round((focusPosition.z - streetLampGridBaseZ) / streetLampGridSpacingZ));
+    const std::array<float, 2> streetLampXPositions =
+    {
+        defaultLampLightPositions[0].x,
+        defaultLampLightPositions[1].x
+    };
+
+    for (int zOffset = -5; zOffset <= 5; ++zOffset)
+    {
+        const float z = streetLampGridBaseZ + static_cast<float>(centerZIndex + zOffset) * streetLampGridSpacingZ;
+        for (float x : streetLampXPositions)
+        {
+            Light light;
+            light.id = "auto_street_lamp";
+            light.name = "Auto Street Lamp";
+            light.position = glm::vec3(x, -156.0f, z);
+            light.color = defaultLampLightColor;
+            light.radius = 62.0f;
+            light.intensity = 1.85f;
+            light.helperSize = 0.0f;
+            AddRuntimeLampCandidate(candidates, light, focusPosition);
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+        [](const RuntimeLampCandidate& a, const RuntimeLampCandidate& b)
+        {
+            return a.distanceSquared < b.distanceSquared;
+        });
+
+    std::vector<Light> runtimeLights;
+    runtimeLights.reserve(maxLampLightCount);
+    for (const RuntimeLampCandidate& candidate : candidates)
+    {
+        if (runtimeLights.size() >= maxLampLightCount)
+            break;
+        runtimeLights.push_back(candidate.light);
+    }
+    return runtimeLights;
 }
 
 void UploadLampLightUniforms(Shader& shaderProgram, const std::vector<Light>& lights)
@@ -1927,11 +2520,19 @@ void DrawInteriorLightCubes(const std::vector<Light>& lights, Shader& lightShade
     glBindVertexArray(0);
 }
 
-void DrawRainOverlay(Shader& rainShader, GLuint rainVAO, float rainIntensity, float nightFactor, float currentFrame)
+void DrawRainOverlay(
+    Shader& rainShader,
+    GLuint rainVAO,
+    float rainIntensity,
+    float nightFactor,
+    float currentFrame,
+    float lightningIntensity,
+    float lightningSeed)
 {
     rainIntensity = glm::clamp(rainIntensity, 0.0f, 1.0f);
     nightFactor = glm::clamp(nightFactor, 0.0f, 1.0f);
-    if (rainIntensity <= 0.01f && nightFactor <= 0.08f)
+    lightningIntensity = glm::clamp(lightningIntensity, 0.0f, 1.35f);
+    if (rainIntensity <= 0.01f && nightFactor <= 0.08f && lightningIntensity <= 0.01f)
         return;
 
     glDisable(GL_DEPTH_TEST);
@@ -1942,6 +2543,8 @@ void DrawRainOverlay(Shader& rainShader, GLuint rainVAO, float rainIntensity, fl
     glUniform1f(glGetUniformLocation(rainShader.ID, "time"), currentFrame);
     glUniform1f(glGetUniformLocation(rainShader.ID, "rainIntensity"), rainIntensity);
     glUniform1f(glGetUniformLocation(rainShader.ID, "nightFactor"), nightFactor);
+    glUniform1f(glGetUniformLocation(rainShader.ID, "lightningIntensity"), lightningIntensity);
+    glUniform1f(glGetUniformLocation(rainShader.ID, "lightningSeed"), lightningSeed);
     glUniform2f(glGetUniformLocation(rainShader.ID, "resolution"), static_cast<float>(width), static_cast<float>(height));
 
     glBindVertexArray(rainVAO);
@@ -1974,6 +2577,9 @@ int main(int argc, char** argv)
     glfwSwapInterval(0);
     gladLoadGL();
     glViewport(0, 0, width, height);
+
+    GameAudio gameAudio;
+    gameAudio.Init();
 
     Shader overlayShader("Shaders/menu.vert", "Shaders/menu.frag");
     GLuint overlayVAO, overlayVBO;
@@ -2015,6 +2621,7 @@ int main(int argc, char** argv)
 
     if (glfwWindowShouldClose(window))
     {
+        gameAudio.Shutdown();
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
@@ -2031,11 +2638,14 @@ int main(int argc, char** argv)
     Shader rainShader("Shaders/screen.vert", "Shaders/rain_overlay.frag");
 
     GLuint lampGlowVAO, lampGlowVBO, lampGlowEBO;
+    GLuint carWheelVAO, carWheelVBO, carWheelEBO;
     GLuint lightCubeVAO, lightCubeVBO;
     GLuint rainVAO, rainVBO;
     GLsizei lampGlowDrawIndexCount = 0;
+    GLsizei carWheelIndexCount = 0;
     createSphere(lampGlowVAO, lampGlowVBO, lampGlowEBO, lampGlowDrawIndexCount, lampGlowSectors, lampGlowSize);
     (void)lampGlowDrawIndexCount;
+    createCylinder(carWheelVAO, carWheelVBO, carWheelEBO, carWheelIndexCount, 14);
     createCube(lightCubeVAO, lightCubeVBO);
 
     const float rainQuadVertices[] =
@@ -2086,8 +2696,10 @@ int main(int argc, char** argv)
         ? sceneData.entities.front().assetPath
         : std::string("modelos/city2.glb");
     Model model(activeModelPath.c_str());
-    Model carModel("modelos/Coches/Car_1/source/Car1.gltf");
+    Model carModel("modelos/Coches/Car_1/scene.gltf");
     const glm::vec3 carLocalAnchorOffset = ComputeCarLocalAnchorOffset(carModel);
+    const float carVisualScale = ComputeCarVisualScale(carModel);
+    const ProceduralCarWheelLayout carWheelLayout = ComputeCarWheelLayout(carModel);
     Skybox skybox(
         GetSkyboxFacePaths(EnvironmentMode::Day),
         GetSkyboxFacePaths(EnvironmentMode::Night),
@@ -2095,7 +2707,7 @@ int main(int argc, char** argv)
         "Shaders/skybox_cubemap.frag"
     );
     VolumetricCloudRenderer volumetricClouds(width, height);
-    skybox.SetProceduralCloudsEnabled(!volumetricClouds.IsReady());
+    skybox.SetProceduralCloudsEnabled(!volumetricClouds.IsReady() && !useFastRenderMode);
     if (!volumetricClouds.GetStatusMessage().empty())
         std::cout << volumetricClouds.GetStatusMessage() << std::endl;
 
@@ -2129,6 +2741,7 @@ int main(int argc, char** argv)
     float cycleSpeedMultiplier = 1.0f;
     float smoothedRainIntensity = 0.0f;
     bool rainToggleWasDown = false;
+    LightningState lightning;
     glm::vec3 sunPos(0.0f);
     glm::vec3 moonPos(0.0f);
     bool isDay = true;
@@ -2143,6 +2756,7 @@ int main(int argc, char** argv)
     ColliderManager colliderManager;
     CollisionSystem collisionSystem;
     DrivableCarState car;
+    GroundSnapCache playerGroundSnapCache;
 
     Editor editor;
     EditorConfig editorConfig;
@@ -2178,13 +2792,15 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
         UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
-        UploadLampLightUniforms(shaderProgram, sceneData.lights);
+        const std::vector<Light> runtimeLampLights = BuildRuntimeLampLights(sceneData.lights, previewCamera.Position);
+        UploadLampLightUniforms(shaderProgram, runtimeLampLights);
 
         for (const Entity& entity : sceneData.entities)
         {
             model.Draw(shaderProgram, previewCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset);
+        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
+        DrawProceduralCarWheels(lightShader, previewCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, previewCamera, lightCubeVAO, skySunDirection);
     };
@@ -2222,13 +2838,15 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
         UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
-        UploadLampLightUniforms(shaderProgram, sceneData.lights);
+        const std::vector<Light> runtimeLampLights = BuildRuntimeLampLights(sceneData.lights, previewCamera.Position);
+        UploadLampLightUniforms(shaderProgram, runtimeLampLights);
 
         for (const Entity& entity : sceneData.entities)
         {
             model.Draw(shaderProgram, previewCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset);
+        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
+        DrawProceduralCarWheels(lightShader, previewCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, previewCamera, lightCubeVAO, skySunDirection);
     };
@@ -2283,6 +2901,8 @@ int main(int argc, char** argv)
 
         if (appScreen == AppScreen::MainMenu)
         {
+            gameAudio.StopAmbient();
+            gameAudio.StopMovement();
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             menuCursorVisible = true;
             camera.firstClick = true;
@@ -2311,6 +2931,8 @@ int main(int argc, char** argv)
 
         if (appScreen == AppScreen::Loading)
         {
+            gameAudio.StopAmbient();
+            gameAudio.StopMovement();
             if (currentFrame >= loadingScreenUntil)
             {
                 if (loadingDestination == LoadingDestination::World)
@@ -2355,7 +2977,11 @@ int main(int argc, char** argv)
         const bool rainToggleDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
         if (!environmentMenu.open && !skyPanel.open && !editor.IsActive() && !collisionEditor.IsActive() && rainToggleDown && !rainToggleWasDown)
         {
-            cloudSettings.rainIntensity = cloudSettings.rainIntensity > 0.05f ? 0.0f : 0.78f;
+            gameAudio.PlayThunder();
+            const bool enablingRain = cloudSettings.rainIntensity <= 0.05f;
+            cloudSettings.rainIntensity = enablingRain ? 0.78f : 0.0f;
+            if (enablingRain)
+                TriggerLightning(lightning, currentFrame, 1.15f);
         }
         rainToggleWasDown = rainToggleDown;
 
@@ -2389,6 +3015,10 @@ int main(int argc, char** argv)
 
         const float rainTarget = glm::clamp(cloudSettings.rainIntensity, 0.0f, 1.0f);
         smoothedRainIntensity = glm::mix(smoothedRainIntensity, rainTarget, 1.0f - std::exp(-deltaTime * 2.8f));
+        UpdateLightning(lightning, currentFrame, smoothedRainIntensity);
+        const float lightningRainFactor = glm::smoothstep(0.05f, 0.35f, glm::max(smoothedRainIntensity, rainTarget));
+        const float lightningAmount = LightningAmount(lightning, currentFrame) *
+            lightningRainFactor;
 
         timeOfDayAngle = currentFrame * dayNightSpeed * cycleSpeedMultiplier;
         float sunAngleRad = timeOfDayAngle;
@@ -2396,6 +3026,7 @@ int main(int argc, char** argv)
         sunHeight = std::sin(sunAngleRad);
         ApplyEnvironmentMode(environmentMode, manualTimeOfDay, sunAngleRad, sunHeight);
         isDay = sunHeight > 0.0f;
+        gameAudio.UpdateAmbient(isDay);
 
         const float skyBlendFactor = environmentMode == EnvironmentMode::Day
             ? 0.0f
@@ -2414,6 +3045,8 @@ int main(int argc, char** argv)
             glm::vec3(88.0f, 98.0f, 112.0f) / 255.0f,
             smoothedRainIntensity);
         effectiveCloudSettings.rainIntensity = smoothedRainIntensity;
+        effectiveCloudSettings.lightningIntensity = lightningAmount;
+        effectiveCloudSettings.lightningSeed = lightning.seed;
         activeCloudSettings = effectiveCloudSettings;
         skybox.SetCloudSettings(effectiveCloudSettings);
 
@@ -2515,6 +3148,16 @@ int main(int argc, char** argv)
         diffuseIntensity *= glm::mix(1.0f, 0.46f, smoothedRainIntensity);
         specularIntensity = glm::mix(specularIntensity, glm::max(specularIntensity, 1.05f), smoothedRainIntensity);
 
+        if (lightningAmount > 0.001f)
+        {
+            const float lightningClamp = glm::clamp(lightningAmount, 0.0f, 1.0f);
+            mainLightColor = glm::mix(mainLightColor, glm::vec3(0.82f, 0.90f, 1.0f), lightningClamp);
+            mainLightIntensity += lightningAmount * 1.75f;
+            ambientColor += glm::vec3(0.28f, 0.34f, 0.46f) * lightningAmount;
+            diffuseIntensity = glm::max(diffuseIntensity, 0.72f + lightningAmount * 0.45f);
+            specularIntensity = glm::max(specularIntensity, 1.10f + lightningAmount * 0.45f);
+        }
+
         lightColor = glm::vec4(mainLightColor * mainLightIntensity, 1.0f);
 
         const glm::vec3 nightSkyColor(0.03f, 0.04f, 0.08f);
@@ -2525,6 +3168,8 @@ int main(int argc, char** argv)
         glm::vec3 skyColor = glm::mix(nightSkyColor, twilightSkyColor, twilightBlend);
         skyColor = glm::mix(skyColor, daySkyColor, dayBlend);
         skyColor = glm::mix(skyColor, glm::vec3(0.20f, 0.24f, 0.30f), smoothedRainIntensity * 0.68f);
+        skyColor = glm::mix(skyColor, glm::vec3(0.70f, 0.78f, 0.92f), glm::clamp(lightningAmount * 0.72f, 0.0f, 1.0f));
+        skyColor += glm::vec3(0.20f, 0.24f, 0.34f) * lightningAmount;
 
         if (sunHeight < 0.15f)
         {
@@ -2549,9 +3194,13 @@ int main(int argc, char** argv)
         const glm::vec3 prevPos = camera.Position;
         const GameplayGamepadInput gamepad = ReadGameplayGamepadInput();
         bool playerWalking = false;
+        bool playerRunning = false;
         if (!environmentMenu.open && !skyPanel.open && !editor.IsActive() && !collisionEditor.IsActive())
         {
             playerWalking = !car.driving && !camera.flyMode && IsGameplayMovementPressed(window, gamepad);
+            playerRunning = playerWalking &&
+                (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                    glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
             if (environmentMode == EnvironmentMode::Manual && !skyPanel.open)
             {
                 const bool decreaseTime = glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_KP_4) == GLFW_PRESS;
@@ -2575,10 +3224,16 @@ int main(int argc, char** argv)
         if (!camera.flyMode && !car.driving)
         {
             glm::vec3 snapped;
-            if (model.TrySnapToWalkableSurface(
-                camera.Position, sceneModelTransform,
+            if (TrySnapToWalkableSurfaceCached(
+                model,
+                camera.Position,
+                sceneModelTransform,
                 walkProbeRadius, walkEyeHeight,
                 walkMaxStepUp, walkMaxDropDown, walkMaxSlopeDegrees,
+                playerGroundSnapCache,
+                currentFrame,
+                3.0f,
+                0.12f,
                 snapped))
                 camera.Position = snapped;
             else if (model.TrySnapToWalkableSurface(
@@ -2608,6 +3263,9 @@ int main(int argc, char** argv)
 
         const bool gameplayHudActive = !environmentMenu.open && !skyPanel.open && !editor.IsActive() && !collisionEditor.IsActive();
         UpdateWalkAnimation(walkAnimation, gameplayHudActive && !camera.flyMode && !car.driving && playerWalking, deltaTime);
+        gameAudio.UpdateMovement(
+            gameplayHudActive && !camera.flyMode && !car.driving && playerWalking && !playerRunning,
+            gameplayHudActive && !camera.flyMode && !car.driving && playerRunning);
         interaction.target = SceneSelection();
         interaction.targetName.clear();
         if (!car.driving)
@@ -2635,13 +3293,15 @@ int main(int argc, char** argv)
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "sunHeight"), sunHeight);
         glUniform1f(glGetUniformLocation(shaderProgram.ID, "rainIntensity"), smoothedRainIntensity);
         UploadCloudShadowUniforms(shaderProgram, activeCloudSettings);
-        UploadLampLightUniforms(shaderProgram, sceneData.lights);
+        const std::vector<Light> runtimeLampLights = BuildRuntimeLampLights(sceneData.lights, renderCamera.Position);
+        UploadLampLightUniforms(shaderProgram, runtimeLampLights);
 
         for (const Entity& entity : sceneData.entities)
         {
             model.Draw(shaderProgram, renderCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, renderCamera, carModel, car, carLocalAnchorOffset);
+        DrawDrivableCar(shaderProgram, renderCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
+        DrawProceduralCarWheels(lightShader, renderCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, renderCamera, lightCubeVAO, skySunDirection);
 
@@ -2682,12 +3342,12 @@ int main(int argc, char** argv)
                 currentFrame);
             volumetricClouds.CompositeToScreen(activeCloudSettings, false);
         }
-        else if (!useFastRenderMode)
+        else
         {
             skybox.Draw(renderCamera, cameraFov, cameraNearPlane, cameraFarPlane, currentFrame, sunHeight, skySunDirection, moonPos);
         }
 
-        DrawRainOverlay(rainShader, rainVAO, smoothedRainIntensity, nightFactor, currentFrame);
+        DrawRainOverlay(rainShader, rainVAO, smoothedRainIntensity, nightFactor, currentFrame, lightningAmount, lightning.seed);
 
         if (gameplayHudActive)
             DrawPlayerHud(interaction, walkAnimation, currentFrame, overlayShader, overlayVAO, overlayVBO);
@@ -2714,12 +3374,16 @@ int main(int argc, char** argv)
     glDeleteVertexArrays(1, &lampGlowVAO);
     glDeleteBuffers(1, &lampGlowVBO);
     glDeleteBuffers(1, &lampGlowEBO);
+    glDeleteVertexArrays(1, &carWheelVAO);
+    glDeleteBuffers(1, &carWheelVBO);
+    glDeleteBuffers(1, &carWheelEBO);
     glDeleteVertexArrays(1, &lightCubeVAO);
     glDeleteBuffers(1, &lightCubeVBO);
     glDeleteVertexArrays(1, &rainVAO);
     glDeleteBuffers(1, &rainVBO);
     glDeleteVertexArrays(1, &overlayVAO);
     glDeleteBuffers(1, &overlayVBO);
+    gameAudio.Shutdown();
     volumetricClouds.Shutdown();
     editor.Shutdown();
     collisionEditor.Shutdown();

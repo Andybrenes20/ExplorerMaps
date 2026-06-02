@@ -33,10 +33,10 @@ uniform float cloudCoverage;
 uniform float cloudSpeed;
 uniform float cloudDensity;
 uniform int lampLightCount;
-uniform vec3 lampLightPositions[12];
-uniform vec3 lampLightColors[12];
-uniform float lampLightRadii[12];
-uniform float lampLightIntensities[12];
+uniform vec3 lampLightPositions[8];
+uniform vec3 lampLightColors[8];
+uniform float lampLightRadii[8];
+uniform float lampLightIntensities[8];
 
 float Hash31(vec3 p)
 {
@@ -103,6 +103,19 @@ void main()
 	float lambert = max(dot(normal, lightDirection), 0.0f);
 	float hemi = clamp(normal.y * 0.5f + 0.5f, 0.0f, 1.0f);
 	vec4 base = texture(diffuse0, texCoord) * vec4(color, 1.0f);
+
+	if (objectLightBoost > 0.01f)
+	{
+		vec3 vehicleAmbient = max(ambientColor, vec3(0.30f, 0.32f, 0.35f));
+		vec3 vehicleDirect = max(lightColor.rgb, vec3(0.42f, 0.44f, 0.48f)) * (0.28f + lambert * 0.62f + hemi * 0.18f);
+		vec3 vehicleColor = base.rgb * (vehicleAmbient + vehicleDirect);
+		vehicleColor = mix(vehicleColor, base.rgb * 1.35f + vec3(0.08f), clamp(objectLightBoost, 0.0f, 1.0f));
+		vehicleColor = TonemapACES(vehicleColor * 1.08f);
+		vehicleColor = pow(max(vehicleColor, vec3(0.0f)), vec3(1.0f / 1.18f));
+		FragColor = vec4(vehicleColor, base.a);
+		return;
+	}
+
 	float baseLuma = dot(base.rgb, vec3(0.299f, 0.587f, 0.114f));
 	float rain = clamp(rainIntensity, 0.0f, 1.0f);
 	float cinematicDay = dayFactor * (1.0f - nightFactor) * (1.0f - rain * 0.55f);
@@ -217,7 +230,7 @@ void main()
 	vec3 lampContribution = vec3(0.0f);
 	vec3 lampHaloContribution = vec3(0.0f);
 	vec3 emissiveLamp = vec3(0.0f);
-	for (int i = 0; i < lampLightCount && i < 12; ++i)
+	for (int i = 0; i < lampLightCount && i < 8; ++i)
 	{
 		vec3 toLamp = lampLightPositions[i] - crntPos;
 		float distanceToLamp = length(toLamp);
@@ -241,13 +254,16 @@ void main()
 		vec3 lampDirection = normalize(toLamp);
 		float lampDiffuse = max(dot(normal, lampDirection), 0.0f);
 		lampContribution += lampLightColors[i] * attenuation * (0.08f + lampDiffuse * lampLightIntensities[i] * (1.0f + rain * 0.35f));
+		float downwardPool = attenuation * smoothstep(0.18f, 0.86f, normal.y);
+		lampContribution += lampLightColors[i] * downwardPool * lampLightIntensities[i] * (0.32f + rain * 0.24f);
 		lampHaloContribution += lampLightColors[i] * wideHalo * (0.05f + roadMask * (0.15f + rain * 0.30f));
 
 		float lampHeadMask = 1.0f - smoothstep(0.0f, 14.0f, distanceToLamp);
 		emissiveLamp += lampLightColors[i] * lampHeadMask * (3.2f + rain * 1.4f);
 	}
 
-	litColor += surfaceAlbedo * lampContribution * nightFactor;
+	float lampSceneFactor = max(nightFactor, rain * 0.36f);
+	litColor += surfaceAlbedo * lampContribution * lampSceneFactor;
 	litColor += lampHaloContribution * nightRainGlow;
 	litColor += emissiveLamp * nightRainGlow;
 

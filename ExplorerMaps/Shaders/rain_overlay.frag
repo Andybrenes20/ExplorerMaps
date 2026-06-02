@@ -7,6 +7,8 @@ in vec2 TexCoords;
 uniform float time;
 uniform float rainIntensity;
 uniform float nightFactor;
+uniform float lightningIntensity;
+uniform float lightningSeed;
 uniform vec2 resolution;
 
 float Hash21(vec2 p)
@@ -55,10 +57,37 @@ vec3 UrbanGlow(vec2 uv)
 	return glow * horizonBand;
 }
 
+float LightningBolt(vec2 uv, float seed)
+{
+	float skyMask = smoothstep(0.18, 0.58, uv.y);
+	float baseX = mix(0.18, 0.82, Hash21(vec2(seed, seed + 2.1)));
+	float yStart = 0.96;
+	float yEnd = mix(0.36, 0.68, Hash21(vec2(seed + 7.0, seed + 3.0)));
+	float activeY = smoothstep(yEnd, yEnd + 0.04, uv.y) * (1.0 - smoothstep(yStart - 0.03, yStart, uv.y));
+
+	float x = baseX;
+	x += sin((1.0 - uv.y) * 22.0 + seed * 18.0) * 0.035;
+	x += sin((1.0 - uv.y) * 61.0 + seed * 7.0) * 0.014;
+
+	float pixelDistance = abs(uv.x - x) * max(resolution.x, 1.0);
+	float core = exp(-pixelDistance * pixelDistance * 0.075) * activeY;
+	float glow = exp(-pixelDistance * pixelDistance * 0.010) * activeY * 0.34;
+
+	float branchSide = mix(-1.0, 1.0, Hash21(vec2(seed + 12.0, 0.4)));
+	float branchProgress = smoothstep(0.48, 0.74, uv.y);
+	float branchX = x + branchSide * 0.16 * branchProgress;
+	float branchMask = smoothstep(0.42, 0.58, uv.y) * (1.0 - smoothstep(0.72, 0.86, uv.y));
+	float branchDistance = abs(uv.x - branchX) * max(resolution.x, 1.0);
+	float branch = exp(-branchDistance * branchDistance * 0.080) * branchMask * 0.55;
+
+	return (core + glow + branch) * skyMask;
+}
+
 void main()
 {
 	float rain = clamp(rainIntensity, 0.0, 1.0);
 	float night = clamp(nightFactor, 0.0, 1.0);
+	float lightning = clamp(lightningIntensity, 0.0, 1.35);
 	vec2 uv = TexCoords;
 
 	float fineRain = FineRain(uv, 145.0, 1.90, 0.42, 0.72);
@@ -72,7 +101,13 @@ void main()
 
 	vec3 rainColor = vec3(0.78, 0.86, 0.96) * streaks;
 	vec3 hazeColor = vec3(0.58, 0.66, 0.74) * mist;
+	float bolt = LightningBolt(uv, lightningSeed) * lightning;
+	float skyFlash = lightning * smoothstep(0.08, 0.82, uv.y);
+	vec3 lightningColor =
+		vec3(0.72, 0.86, 1.0) * skyFlash * 0.42 +
+		vec3(0.92, 0.97, 1.0) * bolt * 1.70;
 
 	float alpha = clamp(streaks * 0.20 * rain + mist * 0.10 + length(urbanGlow) * 0.08, 0.0, 0.34);
-	FragColor = vec4(rainColor + hazeColor + urbanGlow, alpha);
+	alpha = clamp(alpha + skyFlash * 0.20 + bolt * 0.72, 0.0, 0.78);
+	FragColor = vec4(rainColor + hazeColor + urbanGlow + lightningColor, alpha);
 }

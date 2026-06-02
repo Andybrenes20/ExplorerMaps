@@ -76,6 +76,7 @@ private:
 	glm::vec3 boundsMin = glm::vec3(FLT_MAX);
 	glm::vec3 boundsMax = glm::vec3(-FLT_MAX);
 	bool hasBounds = false;
+	bool lightweightVehicleAsset = false;
 
 	// All the meshes and transformations
 	std::vector<Mesh> meshes;

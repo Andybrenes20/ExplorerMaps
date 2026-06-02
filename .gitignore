@@ -12,3 +12,4 @@ ExplorerMaps/**/*.jpg
 ExplorerMaps/**/*.jpeg
 !ExplorerMaps/Texturas/moon.jpg
 !ExplorerMaps/Texturas/sun.jpg
+!ExplorerMaps/modelos/Coches/Car_1/textures/*.jpeg
