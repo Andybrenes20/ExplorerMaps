@@ -578,18 +578,18 @@ void VolumetricCloudRenderer::RenderClouds(
 	glUniform3fv(volumetricProgram.GetUniformLocation("lightDirection"), 1, glm::value_ptr(glm::normalize(lightDirection)));
 	glUniform3fv(volumetricProgram.GetUniformLocation("lightColor"), 1, glm::value_ptr(lightColor));
 
-	glUniform1f(volumetricProgram.GetUniformLocation("coverage_multiplier"), glm::clamp(settings.coverage, 0.35f, 0.95f));
+	glUniform1f(volumetricProgram.GetUniformLocation("coverage_multiplier"), glm::clamp(settings.coverage, 0.0f, 1.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("cloudSpeed"), glm::max(settings.speed * 450.0f, 0.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("crispiness"), glm::max(settings.crispiness * 40.0f, 0.05f));
-	glUniform1f(volumetricProgram.GetUniformLocation("cloudProjectionScale"), 0.45f);
-	glUniform1f(volumetricProgram.GetUniformLocation("curliness"), glm::max(settings.curliness, 0.01f));
-	glUniform1f(volumetricProgram.GetUniformLocation("absorption"), glm::max(settings.lightAbsorption * 0.01f, 0.0001f));
-	glUniform1f(volumetricProgram.GetUniformLocation("densityFactor"), glm::max(settings.density * 0.024f, 0.010f));
+	glUniform1f(volumetricProgram.GetUniformLocation("curliness"), settings.curliness);
+	glUniform1f(volumetricProgram.GetUniformLocation("absorption"), settings.lightAbsorption * 0.01f);
+	glUniform1f(volumetricProgram.GetUniformLocation("densityFactor"), settings.density * 0.020f);
 	glUniform1f(volumetricProgram.GetUniformLocation("earthRadius"), glm::max(settings.skyDomeRadius, 10000.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("sphereInnerRadius"), glm::max(settings.cloudBottom, 1000.0f));
 	glUniform1f(volumetricProgram.GetUniformLocation("sphereOuterRadius"), glm::max(settings.cloudTop, 1000.0f));
 	glUniform3f(volumetricProgram.GetUniformLocation("cloudColorTop"), 169.0f * 1.5f / 255.0f, 149.0f * 1.5f / 255.0f, 149.0f * 1.5f / 255.0f);
-	glUniform3fv(volumetricProgram.GetUniformLocation("cloudColorBottom"), 1, glm::value_ptr(settings.cloudColor));
+	const glm::vec3 cloudColorBottom = glm::vec3(65.0f, 70.0f, 80.0f) * (1.5f / 255.0f);
+	glUniform3fv(volumetricProgram.GetUniformLocation("cloudColorBottom"), 1, glm::value_ptr(cloudColorBottom));
 	glUniform3fv(volumetricProgram.GetUniformLocation("skyColorTop"), 1, glm::value_ptr(skyColorTop));
 	glUniform3fv(volumetricProgram.GetUniformLocation("skyColorBottom"), 1, glm::value_ptr(skyColorBottom));
 	glUniform1i(volumetricProgram.GetUniformLocation("enablePowder"), settings.sugarPowder ? 1 : 0);

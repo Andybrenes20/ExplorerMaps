@@ -1,6 +1,6 @@
 #version 430 core
 
-// Special thanks to Nadir Roman Guerrero https://github.com/NadirRoGue for inspiring me doing this work!
+// Special thanks to Nadir Román Guerrero https://github.com/NadirRoGue for inspiring me doing this work!
 // Thanks to WFP from gamedev.net and the rest of the community who partecipated at this topic https://www.gamedev.net/forums/topic/680832-horizonzero-dawn-cloud-system/?page=6
 // WFP web site http://roar11.com/
 // Thanks to reinder and his beautiful Himalayas https://www.shadertoy.com/view/MdGfzh 
@@ -35,7 +35,6 @@ uniform vec3 lightDirection;
 uniform float coverage_multiplier = 0.4;
 uniform float cloudSpeed;
 uniform float crispiness = 0.4;
-uniform float cloudProjectionScale = 1.0;
 
 uniform vec3 cameraPosition;
 
@@ -240,7 +239,7 @@ float threshold(const float v, const float t)
 const vec3 windDirection = normalize(vec3(0.5, 0.0, 0.1));
 
 vec2 getUVProjection(vec3 p){
-	return p.xz/(SPHERE_INNER_RADIUS * max(cloudProjectionScale, 0.001)) + 0.5;
+	return p.xz/SPHERE_INNER_RADIUS + 0.5;
 }
 
 #define CLOUD_TOP_OFFSET 750.0
@@ -467,137 +466,10 @@ float computeFogAmount(in vec3 startPos, in float factor){
 
 #define HDR(col, exps) 1.0 - exp(-col * exps)
 
-float cloudTextureFBM(vec2 uv, float heightSlice)
-{
-	vec4 low = textureLod(cloud, vec3(uv, heightSlice), 0.0);
-	vec4 high = textureLod(cloud, vec3(uv * 2.35 + vec2(17.3, -9.1), heightSlice + 0.17), 0.0);
-	return dot(low.rgba, vec4(0.42, 0.27, 0.20, 0.11)) + dot(high.gba, vec3(0.16, 0.10, 0.06));
-}
-
-float cloudHash21(vec2 p)
-{
-	p = fract(p * vec2(127.1, 311.7));
-	p += dot(p, p + 34.71);
-	return fract(p.x * p.y);
-}
-
-float softCloudBlob(vec2 uv, vec2 center, vec2 radius)
-{
-	vec2 q = (uv - center) / max(radius, vec2(0.001));
-	float d = dot(q, q);
-	return smoothstep(1.35, 0.0, d);
-}
-
-float cloudClusterLayer(vec2 uv, float cellScale, float seed)
-{
-	vec2 p = uv * cellScale;
-	vec2 cell = floor(p);
-	vec2 local = fract(p);
-	float result = 0.0;
-
-	for (int y = -1; y <= 1; ++y)
-	{
-		for (int x = -1; x <= 1; ++x)
-		{
-			vec2 offset = vec2(float(x), float(y));
-			vec2 id = cell + offset + vec2(seed);
-			float h0 = cloudHash21(id + vec2(0.17));
-			float h1 = cloudHash21(id + vec2(4.83));
-			float h2 = cloudHash21(id + vec2(9.41));
-			vec2 center = offset + vec2(h0, h1);
-			vec2 radius = vec2(mix(0.46, 0.88, h2), mix(0.28, 0.62, h1));
-			float blob = softCloudBlob(local, center, radius);
-			float brokenEdge = cloudTextureFBM((id + local) * 0.33 + vec2(seed), 0.43);
-			result = max(result, blob * mix(0.72, 1.18, h0) * mix(0.76, 1.10, brokenEdge));
-		}
-	}
-
-	return clamp(result, 0.0, 1.0);
-}
-
-float cloudBankLayer(vec2 uv)
-{
-	float bank = 0.0;
-	bank = max(bank, softCloudBlob(uv, vec2(-0.88, 0.24), vec2(0.44, 0.18)) * 0.98);
-	bank = max(bank, softCloudBlob(uv, vec2(-0.52, 0.05), vec2(0.36, 0.15)) * 0.82);
-	bank = max(bank, softCloudBlob(uv, vec2(-0.20, -0.36), vec2(0.40, 0.17)) * 0.76);
-	bank = max(bank, softCloudBlob(uv, vec2(0.18, 0.32), vec2(0.48, 0.19)) * 0.84);
-	bank = max(bank, softCloudBlob(uv, vec2(0.42, -0.20), vec2(0.46, 0.20)) * 0.96);
-	bank = max(bank, softCloudBlob(uv, vec2(0.78, 0.08), vec2(0.34, 0.16)) * 0.70);
-	bank = max(bank, softCloudBlob(uv, vec2(1.04, -0.30), vec2(0.42, 0.18)) * 0.68);
-	bank = max(bank, softCloudBlob(uv, vec2(-1.12, -0.28), vec2(0.34, 0.15)) * 0.58);
-
-	float lumpyInterior = cloudClusterLayer(uv + vec2(12.4, -3.9), 4.4, 23.0);
-	float edgeNoise = cloudTextureFBM(uv * 1.55 + vec2(8.5, -1.7), 0.68);
-	float erodedEdge = smoothstep(0.08, 0.70, bank + lumpyInterior * 0.28 - (1.0 - edgeNoise) * 0.26);
-
-	return clamp(erodedEdge, 0.0, 1.0);
-}
-
-vec4 renderTerrainCloudDeck(vec3 worldDir, vec4 bg)
-{
-	float skyAmount = smoothstep(-0.04, 0.12, worldDir.y);
-	if (skyAmount <= 0.001)
-		return bg;
-
-	vec2 wind = normalize(vec2(0.92, 0.24)) * iTime * CLOUD_SPEED * 0.000010;
-	vec2 sideWind = vec2(-wind.y, wind.x) * 0.45;
-	float horizonStretch = 1.0 / max(worldDir.y + 0.24, 0.24);
-	vec2 skyUv = worldDir.xz * horizonStretch;
-	skyUv = vec2(skyUv.x * 0.92 + skyUv.y * 0.16, skyUv.y * 0.72 - skyUv.x * 0.10);
-
-	float projectionScale = max(cloudProjectionScale, 0.05);
-	vec2 weatherUv = skyUv * (0.060 / projectionScale) + wind * 0.22 + cameraPosition.xz * 0.00002;
-	vec2 baseUv = skyUv * (0.145 / projectionScale) + wind;
-	vec2 detailUv = skyUv * (0.390 / projectionScale) + wind * 1.45 + sideWind;
-	vec2 puffUv = skyUv * (0.720 / projectionScale) + wind * 1.85 - sideWind * 0.40;
-	vec2 clusterUv = skyUv * (0.92 / projectionScale) + wind * 0.18 + cameraPosition.xz * 0.000015;
-
-	vec3 weather = texture(weatherTex, weatherUv).rgb;
-	float broad = weather.r;
-	float low = cloudTextureFBM(baseUv, 0.34);
-	float mid = cloudTextureFBM(detailUv + vec2(11.0, 2.5), 0.56);
-	float puffs = cloudTextureFBM(puffUv + vec2(-6.0, 18.0), 0.74);
-	float erode = textureLod(worley32, vec3(puffUv * (1.35 + curliness), 0.42), 0.0).r;
-	float cloudIslands = cloudClusterLayer(clusterUv, 1.25, 3.0);
-	cloudIslands = max(cloudIslands, cloudClusterLayer(clusterUv + vec2(7.3, -2.1), 2.05, 11.0) * 0.74);
-	float cloudBanks = cloudBankLayer(skyUv + wind * 0.72 + sideWind * 0.20);
-	cloudIslands = max(cloudIslands * 0.78, cloudBanks);
-
-	float coverage = clamp(coverage_multiplier, 0.0, 1.0);
-	float thresholdValue = mix(0.40, 0.18, coverage);
-	float softness = mix(0.36, 0.20, clamp(crispiness / 80.0, 0.0, 1.0));
-	float shape = cloudIslands * 0.50 + broad * 0.18 + low * 0.27 + mid * 0.20 + puffs * 0.17 - erode * (0.060 + curliness * 0.025);
-	float body = smoothstep(thresholdValue, thresholdValue + softness, shape);
-	float sheet = smoothstep(thresholdValue - 0.12, thresholdValue + softness * 1.40, cloudIslands * 0.38 + low * 0.42 + mid * 0.24 + broad * 0.16);
-
-	float lowerDeck = smoothstep(thresholdValue - 0.18, thresholdValue + 0.22, cloudIslands * 0.34 + broad * 0.48 + low * 0.26);
-	float horizonBand = smoothstep(-0.02, 0.22, worldDir.y) * (1.0 - smoothstep(0.70, 0.98, worldDir.y));
-	float zenithFade = 1.0 - smoothstep(0.94, 1.0, worldDir.y);
-	float alpha = body * (0.82 + densityFactor * 12.0);
-	alpha += sheet * horizonBand * (0.36 + coverage * 0.30);
-	alpha += lowerDeck * horizonBand * (0.26 + coverage * 0.22);
-	alpha *= skyAmount * mix(0.82, 1.0, zenithFade);
-	alpha = clamp(alpha, 0.0, 0.88);
-
-	float lightFacing = smoothstep(-0.20, 0.62, dot(normalize(worldDir), normalize(SUN_DIR)));
-	float verticalLight = smoothstep(0.0, 0.85, worldDir.y);
-	vec3 warmTop = mix(vec3(0.88, 0.94, 1.00), vec3(1.00, 0.97, 0.78), lightFacing);
-	vec3 shadedBottom = mix(CLOUDS_AMBIENT_COLOR_BOTTOM * 1.35, bg.rgb * 0.72, 0.45);
-	vec3 cloudCol = mix(shadedBottom, warmTop, verticalLight * 0.52 + lightFacing * 0.34);
-	cloudCol += vec3(1.0, 0.86, 0.50) * pow(max(dot(normalize(worldDir), normalize(SUN_DIR)), 0.0), 14.0) * alpha * 0.20;
-	cloudCol = mix(cloudCol, bg.rgb, (1.0 - skyAmount) * 0.45);
-
-	vec3 result = mix(bg.rgb, cloudCol, alpha);
-	return vec4(result, alpha);
-}
-
 void main()
 {
 	vec4 fragColor_v, bloom_v, alphaness_v, cloudDistance_v;
 	ivec2 fragCoord = ivec2(gl_GlobalInvocationID.xy);
-	if (fragCoord.x >= int(iResolution.x) || fragCoord.y >= int(iResolution.y))
-		return;
 
 	//if(texture(depthMap, TexCoords).r < 1.0)
 	//compute ray direction
@@ -615,17 +487,10 @@ void main()
 	//intersectCubeMap(vec3(0.0, 0.0, 0.0), worldDir, stub, cubeMapEndPos);
 	bool hit = raySphereintersectionSkyMap(worldDir, 0.5, cubeMapEndPos);
 
-	vec4 bg = texture(sky, vec2(fragCoord)/iResolution);
+	vec4 bg = texture(sky, fragCoord/iResolution);
 	vec3 red = vec3(1.0);
 
 	bg = mix( mix(red.rgbr, vec4(1.0), SUN_DIR.y), bg, pow( max(cubeMapEndPos.y+0.1, .0), 0.2));
-	vec4 deckClouds = renderTerrainCloudDeck(worldDir, bg);
-	imageStore(fragColor, fragCoord, vec4(deckClouds.rgb, 1.0));
-	imageStore(bloom, fragCoord, vec4(max(deckClouds.rgb - bg.rgb, vec3(0.0)), 1.0));
-	imageStore(alphaness, fragCoord, vec4(deckClouds.a, 0.0, 0.0, 1.0));
-	imageStore(cloudDistance, fragCoord, vec4(-1.0));
-	return;
-
 	//vec4 bg = vec4( TonemapACES(preetham(worldDir)), 1.0);
 	int case_ = 0;
 	//compute raymarching starting and ending point

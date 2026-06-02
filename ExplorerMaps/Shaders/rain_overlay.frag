@@ -38,6 +38,42 @@ float FineRain(vec2 uv, float density, float speed, float slant, float lengthSca
 	return line * dash * visible;
 }
 
+float FallingDrops(vec2 uv, float density, float speed, float slant)
+{
+	float aspect = resolution.x / max(resolution.y, 1.0);
+	vec2 p = vec2(uv.x * aspect, uv.y);
+	p.x += p.y * slant;
+	p.y += time * speed;
+
+	vec2 grid = p * vec2(density, density * 0.72);
+	vec2 cell = floor(grid);
+	vec2 local = fract(grid) - 0.5;
+	float seed = Hash21(cell);
+
+	local.x += (seed - 0.5) * 0.36;
+	float dropHead = 1.0 - smoothstep(0.035, 0.105, length(local * vec2(1.15, 0.72)));
+	float tail = 1.0 - smoothstep(0.018, 0.080, abs(local.x + local.y * 0.18));
+	tail *= smoothstep(0.06, 0.34, local.y) * (1.0 - smoothstep(0.34, 0.50, local.y));
+	float visible = smoothstep(0.58, 0.96, seed);
+
+	return (dropHead * 0.72 + tail * 0.48) * visible;
+}
+
+float GroundSplashes(vec2 uv, float density)
+{
+	float aspect = resolution.x / max(resolution.y, 1.0);
+	float groundMask = smoothstep(0.02, 0.34, uv.y) * (1.0 - smoothstep(0.46, 0.72, uv.y));
+	vec2 p = vec2(uv.x * aspect, uv.y + time * 0.18);
+	vec2 grid = p * vec2(density, density * 0.34);
+	vec2 cell = floor(grid);
+	vec2 local = fract(grid) - 0.5;
+	float seed = Hash21(cell);
+	float ring = abs(length(local * vec2(1.7, 0.55)) - 0.26);
+	float splash = 1.0 - smoothstep(0.018, 0.070, ring);
+	splash *= smoothstep(0.78, 0.98, seed);
+	return splash * groundMask;
+}
+
 vec3 UrbanGlow(vec2 uv)
 {
 	float horizonBand = smoothstep(0.12, 0.56, uv.y) * (1.0 - smoothstep(0.88, 1.0, uv.y));
@@ -93,13 +129,19 @@ void main()
 	float fineRain = FineRain(uv, 145.0, 1.90, 0.42, 0.72);
 	float midRain = FineRain(uv + vec2(0.19, 0.11), 88.0, 2.35, 0.48, 0.88);
 	float nearRain = FineRain(uv + vec2(-0.27, 0.23), 52.0, 2.85, 0.54, 1.0);
-	float streaks = fineRain * 0.38 + midRain * 0.46 + nearRain * 0.34 * rain;
+	float visibleDrops = FallingDrops(uv + vec2(0.07, -0.03), 34.0, 2.65, 0.50);
+	float closeDrops = FallingDrops(uv + vec2(-0.21, 0.18), 22.0, 3.20, 0.58);
+	float splashes = GroundSplashes(uv, 42.0);
+	float streaks = fineRain * 0.44 + midRain * 0.58 + nearRain * 0.54 * rain;
+	float drops = visibleDrops * 0.74 + closeDrops * 0.92;
 
 	float vignette = smoothstep(0.92, 0.18, length(uv - 0.5));
 	float mist = ((1.0 - vignette) * 0.08 + smoothstep(0.0, 0.70, uv.y) * 0.025) * rain;
 	vec3 urbanGlow = UrbanGlow(uv) * (0.08 + rain * 0.18) * night;
 
 	vec3 rainColor = vec3(0.78, 0.86, 0.96) * streaks;
+	rainColor += vec3(0.86, 0.93, 1.0) * drops * (0.52 + night * 0.28);
+	rainColor += vec3(0.70, 0.82, 0.94) * splashes * 0.42;
 	vec3 hazeColor = vec3(0.58, 0.66, 0.74) * mist;
 	float bolt = LightningBolt(uv, lightningSeed) * lightning;
 	float skyFlash = lightning * smoothstep(0.08, 0.82, uv.y);
@@ -107,7 +149,7 @@ void main()
 		vec3(0.72, 0.86, 1.0) * skyFlash * 0.42 +
 		vec3(0.92, 0.97, 1.0) * bolt * 1.70;
 
-	float alpha = clamp(streaks * 0.20 * rain + mist * 0.10 + length(urbanGlow) * 0.08, 0.0, 0.34);
+	float alpha = clamp((streaks * 0.24 + drops * 0.30 + splashes * 0.18) * rain + mist * 0.10 + length(urbanGlow) * 0.08, 0.0, 0.48);
 	alpha = clamp(alpha + skyFlash * 0.20 + bolt * 0.72, 0.0, 0.78);
 	FragColor = vec4(rainColor + hazeColor + urbanGlow + lightningColor, alpha);
 }

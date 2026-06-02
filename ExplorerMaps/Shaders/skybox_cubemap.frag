@@ -168,9 +168,9 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	vec2 windDir = normalize(vec2(0.92, 0.22));
 
 	vec2 wind = windDir * time * (0.050 + 0.010 * rain) * speed;
-	float coverage = mix(0.68, 0.30, clamp((cloudCoverage - 0.15) / 1.05, 0.0, 1.0));
-	coverage = mix(coverage, 0.44, rain * 0.80);
-	float softness = mix(0.26, 0.075, clamp(crispiness / 2.5, 0.0, 1.0));
+	float coverage = mix(0.62, 0.24, clamp((cloudCoverage - 0.10) / 1.00, 0.0, 1.0));
+	coverage = mix(coverage, 0.40, rain * 0.80);
+	float softness = mix(0.30, 0.095, clamp(crispiness / 2.5, 0.0, 1.0));
 	softness = mix(softness, 0.34, rain);
 	float dayVis = max(dayCloudVisibility, rain * 0.90);
 	float nightVis = nightAmount * (0.25 + rain * 0.40);
@@ -195,28 +195,27 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	float domeBand = lowerFade * upperFade;
 
 	vec2 drift = windDir * time * (0.038 + rain * 0.010) * speed;
-	vec2 highLayerDrift = vec2(-windDir.y, windDir.x) * time * (0.010 + rain * 0.004) * speed;
-	vec2 curlUv = skyUv * max(cloudFrequency, 0.05) + drift * 0.70 + highLayerDrift * 0.25;
+	vec2 curlUv = skyUv * max(cloudFrequency, 0.05) + drift * 0.70;
 	vec2 curl = vec2(
 		fbm(curlUv * 1.18 + vec2(3.2, 8.7)),
 		fbm(curlUv * 1.05 + vec2(-6.5, 1.3))
 	) - 0.5;
-	vec2 shapedUv = skyUv * (0.70 + cloudFrequency * 0.62) + drift + highLayerDrift + curl * (0.48 + curliness * 0.50);
+	vec2 shapedUv = skyUv * (0.70 + cloudFrequency * 0.62) + drift + curl * (0.48 + curliness * 0.50);
 
 	float largeShape = fbm(shapedUv * 0.66 + wind * 0.12);
 	float mediumShape = fbm(shapedUv * (1.44 + crispiness * 0.22) + vec2(12.5, 4.0) + wind * 0.22);
-	float puffShape = fbm(shapedUv * (3.05 + crispiness * 0.58) + vec2(-7.0, 14.0) + highLayerDrift * 0.40);
+	float puffShape = fbm(shapedUv * (3.05 + crispiness * 0.58) + vec2(-7.0, 14.0));
 	float erode = noise(shapedUv * (5.8 + curliness * 3.4) + vec2(2.0, 19.0) + wind * 0.50);
-	float billow = fbm(vec2(shapedUv.x * 2.10 + worldUv.x * 0.22, shapedUv.y * 3.80 + worldUv.y * 0.14));
+	float billow = fbm(shapedUv * 2.20 + worldUv * 0.16);
 	float cauliflower = fbm3(vec3(shapedUv * (2.2 + crispiness * 0.35) + wind * 0.18, skyHeight * 4.5 + time * 0.055 * speed));
 	float verticalPuff = smoothstep(0.06, 0.48, skyHeight) * (1.0 - smoothstep(0.72, 0.98, skyHeight));
 
-	vec2 stratusUv = skyUv * (0.34 + cloudFrequency * 0.22) + drift * 0.42 - highLayerDrift * 0.20;
+	vec2 stratusUv = skyUv * (0.34 + cloudFrequency * 0.22) + drift * 0.42;
 	float stratusLarge = fbm(stratusUv * 0.72 + vec2(4.0, -8.0));
 	float stratusVeil = fbm(stratusUv * 1.38 + vec2(-11.0, 2.0));
 	float stratusGeneration = stratusLarge * 0.72 + stratusVeil * 0.28;
 
-	vec2 stratocumulusUv = skyUv * (0.92 + cloudFrequency * 0.42) + drift * 0.80 + highLayerDrift * 0.36;
+	vec2 stratocumulusUv = skyUv * (0.92 + cloudFrequency * 0.42) + drift * 0.80;
 	float cellularBase = fbm(stratocumulusUv * 0.85 + vec2(21.0, 3.0));
 	float cellularBreakup = fbm(stratocumulusUv * 2.45 + vec2(-5.0, 16.0));
 	float stratocumulusGeneration = cellularBase * 0.66 + cellularBreakup * 0.34;
@@ -224,13 +223,8 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	vec2 cumulusUv = skyUv * (1.45 + cloudFrequency * 0.70) + drift * 1.16 + curl * (0.62 + curliness * 0.35);
 	float cumulusMass = fbm(cumulusUv * 0.78 + vec2(-13.0, 9.0));
 	float cumulusTowers = fbm3(vec3(cumulusUv * 1.75 + wind * 0.25, skyHeight * 6.5 + time * 0.040 * speed));
-	float cumulusErosion = fbm(cumulusUv * (4.2 + crispiness * 0.72) + vec2(8.0, -18.0) + highLayerDrift * 0.50);
+	float cumulusErosion = fbm(cumulusUv * (4.2 + crispiness * 0.72) + vec2(8.0, -18.0));
 	float cumulusGeneration = cumulusMass * 0.52 + cumulusTowers * 0.36 + billow * 0.18 - cumulusErosion * (0.10 + crispiness * 0.020);
-
-	vec2 cirroUv = skyUv * vec2(3.6, 0.72) + highLayerDrift * 1.20 + wind * 0.10;
-	float cirroStreaks = fbm(cirroUv + vec2(31.0, -6.0));
-	float cirroDetail = fbm(vec2(cirroUv.x * 2.8, cirroUv.y * 0.42) + vec2(-7.0, 19.0));
-	float cirrusGeneration = cirroStreaks * 0.72 + cirroDetail * 0.28;
 
 	float fairWeatherShape = largeShape * 0.50 + mediumShape * 0.23 + puffShape * 0.15 + billow * verticalPuff * 0.20 + cauliflower * 0.13 - erode * (0.075 + crispiness * 0.026);
 	float stormSheetShape = largeShape * 0.68 + mediumShape * 0.24 + billow * 0.08;
@@ -238,25 +232,24 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	float midDeckMask = smoothstep(0.18, 0.62, skyHeight) * (1.0 - smoothstep(0.86, 1.0, skyHeight));
 	float highVeilMask = smoothstep(0.44, 0.76, skyHeight) * (1.0 - smoothstep(0.97, 1.0, skyHeight));
 
-	float cumulusCoverage = coverage + mix(0.05, -0.02, clamp(cloudCoverage, 0.0, 1.0));
-	float stratocumulusCoverage = coverage - 0.025;
+	float cumulusCoverage = coverage + mix(0.015, -0.055, clamp(cloudCoverage, 0.0, 1.0));
+	float stratocumulusCoverage = coverage - 0.075;
 	float stratusCoverage = mix(0.70, 0.42, rain);
-	float cirrusCoverage = 0.64 - cloudCoverage * 0.12;
 
 	float cumulusLayer = smoothstep(cumulusCoverage, cumulusCoverage + softness * 0.74, cumulusGeneration) * lowCumulusMask;
 	float stratocumulusLayer = smoothstep(stratocumulusCoverage, stratocumulusCoverage + softness * 1.12, stratocumulusGeneration) * midDeckMask;
-	float stratusLayer = smoothstep(stratusCoverage, stratusCoverage + 0.30, stratusGeneration) * cloudBand * mix(0.22, 1.0, rain);
-	float cirrusLayer = smoothstep(cirrusCoverage, cirrusCoverage + 0.18, cirrusGeneration) * highVeilMask * (1.0 - rain * 0.55);
+	float stratusLayer = smoothstep(stratusCoverage, stratusCoverage + 0.30, stratusGeneration) * cloudBand * mix(0.0, 0.55, rain);
+	float cirrusLayer = 0.0;
 
-	float terrainStyleMix = clamp(cumulusLayer * 0.58 + stratocumulusLayer * 0.48 + stratusLayer * 0.36 + cirrusLayer * 0.18, 0.0, 1.0);
+	float terrainStyleMix = clamp(cumulusLayer * 0.82 + stratocumulusLayer * 0.76 + stratusLayer * 0.24, 0.0, 1.0);
 	float cloudShape = mix(fairWeatherShape, stormSheetShape, rain * 0.78);
 
 	float cloudBody = smoothstep(coverage, coverage + softness, cloudShape);
 	float cloudCore = smoothstep(coverage + 0.08, coverage + softness + 0.12, cloudShape);
 	float underside = 1.0 - smoothstep(0.18, 0.58, skyHeight);
-	float alpha = cloudBody * cloudBand * domeBand * visibility * densityBoost * (0.72 + rain * 0.24);
-	alpha += cloudCore * cloudBand * domeBand * visibility * densityBoost * 0.18;
-	alpha += terrainStyleMix * cloudBand * domeBand * visibility * densityBoost * mix(0.42, 0.24, rain);
+	float alpha = cloudBody * cloudBand * domeBand * visibility * densityBoost * (0.92 + rain * 0.24);
+	alpha += cloudCore * cloudBand * domeBand * visibility * densityBoost * 0.26;
+	alpha += terrainStyleMix * cloudBand * domeBand * visibility * densityBoost * mix(0.58, 0.28, rain);
 	float overcastAlpha = smoothstep(0.24, 0.78, stormSheetShape) * cloudBand * domeBand * visibility * (0.44 + densityBoost * 0.16);
 	overcastAlpha += stratusLayer * domeBand * visibility * 0.24;
 	alpha = mix(alpha, overcastAlpha, rain * 0.82);
@@ -277,8 +270,8 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	generationTint += vec3(0.10, 0.13, 0.17) * cumulusLayer * underside * 0.18;
 	generationTint += vec3(0.05, 0.07, 0.09) * stratocumulusLayer * 0.10;
 	generationTint += vec3(0.18, 0.20, 0.22) * stratusLayer * (0.10 + rain * 0.18);
-	generationTint += vec3(0.92, 0.96, 1.00) * cirrusLayer * 0.18;
-	dayColor = mix(dayColor, dayColor + generationTint, clamp(terrainStyleMix + cirrusLayer, 0.0, 1.0));
+	generationTint += vec3(0.92, 0.96, 1.00) * cirrusLayer * 0.06;
+	dayColor = mix(dayColor, dayColor + generationTint, clamp(terrainStyleMix + cirrusLayer * 0.25, 0.0, 1.0));
 	vec3 nightColor = mix(vec3(0.045, 0.065, 0.120), vec3(0.18, 0.24, 0.42), highCloud);
 	nightColor += vec3(0.10, 0.13, 0.22) * moonFacing * 0.32;
 	vec3 stormColor = mix(vec3(0.33, 0.38, 0.43), vec3(0.62, 0.67, 0.70), highCloud * 0.55 + lightFacing * 0.18);
@@ -287,8 +280,8 @@ vec4 renderRepoStyleClouds(vec3 dir, vec3 skySunDir, vec3 skyMoonDir, vec3 camer
 	cloudColor = mix(cloudColor, stormColor, rain * 0.88);
 
 	float sunEdge = pow(max(dot(dir, skySunDir), 0.0), 18.0) * dayVis * (1.0 - rain * 0.65);
-	float silverLining = smoothstep(0.10, 0.75, alpha) * (1.0 - smoothstep(0.82, 1.0, alpha)) * sunEdge;
-	float broadSunBloom = pow(max(dot(dir, skySunDir), 0.0), 4.2) * dayVis * (1.0 - rain * 0.80);
+	float silverLining = 0.0;
+	float broadSunBloom = 0.0;
 	float moonLining = pow(max(dot(dir, skyMoonDir), 0.0), 22.0) * nightVis * (1.0 - rain * 0.55);
 	cloudColor += mix(vec3(1.0, 0.76, 0.42), vec3(1.0), remap01(sunHeight, 0.20, 0.82)) * silverLining * 0.58 * (1.0 - rain * 0.90);
 	cloudColor += vec3(1.0, 0.92, 0.66) * broadSunBloom * cloudBody * 0.055 * (1.0 - rain * 0.85);
@@ -343,14 +336,6 @@ void main()
 			atan(dir.z, dir.x) / 6.2831853 + 0.5,
 			asin(clamp(dir.y, -1.0, 1.0)) / 3.1415926 + 0.5
 		);
-		float cirrusBand = smoothstep(0.28, 0.64, skyVertical) * (1.0 - smoothstep(0.94, 1.0, skyVertical));
-		vec2 cirrusUv = vec2(skyMapUv.x * 8.6, skyMapUv.y * 2.8) + time * vec2(0.022, 0.0045) * max(cloudSpeed, 0.15);
-		float cirrusShape = fbm(vec2(cirrusUv.x * 1.85, cirrusUv.y * 0.36));
-		float cirrusDetail = fbm(vec2(cirrusUv.x * 5.20 + 17.0, cirrusUv.y * 0.82 - 6.0));
-		float cirrus = smoothstep(0.50, 0.86, cirrusShape * 0.68 + cirrusDetail * 0.42);
-		float cirrusOpacity = cirrus * cirrusBand * dayPresence * clamp(cloudDensity * 0.17, 0.12, 0.34);
-		vec3 cirrusColor = mix(vec3(0.88, 0.94, 1.0), vec3(1.0, 0.82, 0.55), goldenHour * 0.75);
-		proceduralSky = mix(proceduralSky, cirrusColor, cirrusOpacity);
 		vec3 stormSky = mix(vec3(0.18, 0.21, 0.26), vec3(0.31, 0.36, 0.43), clamp(dir.y * 0.5 + 0.5, 0.0, 1.0));
 		stormSky += vec3(0.05, 0.055, 0.06) * horizonHaze;
 		proceduralSky = mix(proceduralSky, stormSky, rain * 0.76);

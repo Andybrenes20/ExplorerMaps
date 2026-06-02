@@ -7,6 +7,7 @@
 #include<cmath>
 #include<filesystem>
 #include<iomanip>
+#include<memory>
 #include<sstream>
 #include<string>
 #include<vector>
@@ -1690,11 +1691,13 @@ void DrawLoadingScreenOverlay(Shader& overlayShader, GLuint overlayVAO, GLuint o
     const float centerX = width * 0.5f;
     const float centerY = height * 0.5f;
 
-    AddOverlayRect(vertices, 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), glm::vec4(0.015f, 0.018f, 0.026f, 1.0f));
-    AddOverlayText(vertices, "CARGANDO EXPLORERMAN", centerX - 260.0f, centerY - 80.0f, 1.25f, glm::vec4(1.0f, 0.86f, 0.34f, 1.0f));
-    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, barW, 18.0f, glm::vec4(0.08f, 0.10f, 0.14f, 1.0f));
-    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, progressW, 18.0f, glm::vec4(0.14f, 0.40f, 0.56f, 1.0f));
-    AddOverlayText(vertices, "PREPARANDO EL MUNDO...", centerX - 170.0f, centerY + 44.0f, 0.72f, glm::vec4(0.64f, 0.71f, 0.82f, 1.0f));
+    AddOverlayRect(vertices, 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), glm::vec4(0.010f, 0.014f, 0.022f, 1.0f));
+    AddOverlayRect(vertices, centerX - 270.0f, centerY - 120.0f, 540.0f, 230.0f, glm::vec4(0.025f, 0.034f, 0.050f, 0.92f));
+    AddOverlayRect(vertices, centerX - 270.0f, centerY - 120.0f, 540.0f, 6.0f, glm::vec4(0.95f, 0.72f, 0.20f, 1.0f));
+    AddOverlayText(vertices, "CARGANDO EXPLORERMAPS", centerX - 230.0f, centerY - 78.0f, 1.18f, glm::vec4(1.0f, 0.86f, 0.34f, 1.0f));
+    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, barW, 18.0f, glm::vec4(0.07f, 0.09f, 0.13f, 1.0f));
+    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, progressW, 18.0f, glm::vec4(0.28f, 0.56f, 0.72f, 1.0f));
+    AddOverlayText(vertices, "PREPARANDO EL MAPA...", centerX - 132.0f, centerY + 44.0f, 0.72f, glm::vec4(0.70f, 0.78f, 0.88f, 1.0f));
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -1841,7 +1844,7 @@ MainMenuAction DrawMainMenuImGui()
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.025f, 0.035f, 1.0f));
-    ImGui::Begin("ExplorerMan Inicio", nullptr, flags);
+    ImGui::Begin("ExplorerMaps Inicio", nullptr, flags);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
@@ -1868,7 +1871,7 @@ MainMenuAction DrawMainMenuImGui()
     drawList->AddRectFilled(panelPos, ImVec2(panelPos.x + panelW, panelPos.y + 6.0f), IM_COL32(238, 188, 63, 255), 6.0f);
 
     ImGui::SetCursorScreenPos(ImVec2(panelPos.x + 64.0f, panelPos.y + 62.0f));
-    ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.34f, 1.0f), "EXPLORERMAN");
+    ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.34f, 1.0f), "EXPLORERMAPS");
     ImGui::SetCursorScreenPos(ImVec2(panelPos.x + 66.0f, panelPos.y + 112.0f));
     ImGui::TextColored(ImVec4(0.66f, 0.73f, 0.82f, 1.0f), "Menu de inicio");
 
@@ -1892,7 +1895,7 @@ MainMenuAction DrawMainMenuImGui()
     ImGui::PopStyleVar(2);
 
     ImGui::SetCursorScreenPos(ImVec2(panelPos.x + 66.0f, panelPos.y + 362.0f));
-    ImGui::TextColored(ImVec4(0.50f, 0.57f, 0.68f, 1.0f), "ExplorerMan");
+    ImGui::TextColored(ImVec4(0.50f, 0.57f, 0.68f, 1.0f), "ExplorerMaps");
 
     ImGui::End();
     return action;
@@ -1910,8 +1913,8 @@ void DrawLoadingScreenImGui()
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.015f, 0.018f, 0.026f, 1.0f));
-    ImGui::Begin("ExplorerMan Cargando", nullptr, flags);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.010f, 0.014f, 0.022f, 1.0f));
+    ImGui::Begin("ExplorerMaps Cargando", nullptr, flags);
     ImGui::PopStyleColor();
 
     const ImVec2 size = io.DisplaySize;
@@ -1920,12 +1923,12 @@ void DrawLoadingScreenImGui()
     const float pulse = (std::sin(static_cast<float>(glfwGetTime()) * 5.0f) + 1.0f) * 0.5f;
     const float progress = 0.35f + pulse * 0.55f;
 
-    ImGui::SetCursorScreenPos(ImVec2(centerX - 180.0f, centerY - 64.0f));
-    ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.34f, 1.0f), "CARGANDO EXPLORERMAN");
+    ImGui::SetCursorScreenPos(ImVec2(centerX - 166.0f, centerY - 64.0f));
+    ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.34f, 1.0f), "CARGANDO EXPLORERMAPS");
     ImGui::SetCursorScreenPos(ImVec2(centerX - 180.0f, centerY - 10.0f));
     ImGui::ProgressBar(progress, ImVec2(360.0f, 18.0f), "");
-    ImGui::SetCursorScreenPos(ImVec2(centerX - 110.0f, centerY + 34.0f));
-    ImGui::TextColored(ImVec4(0.64f, 0.71f, 0.82f, 1.0f), "Preparando el mundo...");
+    ImGui::SetCursorScreenPos(ImVec2(centerX - 92.0f, centerY + 34.0f));
+    ImGui::TextColored(ImVec4(0.70f, 0.78f, 0.88f, 1.0f), "Preparando el mapa...");
 
     ImGui::End();
 }
@@ -2035,17 +2038,17 @@ void DrawSkyControlImGui(SkyPanelState& panel, EnvironmentMode& mode, float& man
 
     if (ImGui::Button("TerrainEngine look", ImVec2(156.0f, 0.0f)))
     {
-        cloudSettings.coverage = 0.45f;
+        cloudSettings.coverage = 0.68f;
         cloudSettings.speed = 1.0f;
         cloudSettings.crispiness = 1.0f;
-        cloudSettings.curliness = 0.10f;
-        cloudSettings.density = 1.0f;
+        cloudSettings.curliness = 0.18f;
+        cloudSettings.density = 1.35f;
         cloudSettings.lightAbsorption = 0.35f;
         cloudSettings.skyDomeRadius = 600000.0f;
         cloudSettings.cloudBottom = 5000.0f;
         cloudSettings.cloudTop = 17000.0f;
-        cloudSettings.cloudFrequency = 0.80f;
-        cloudSettings.cloudColor = glm::vec3(98.0f, 105.0f, 120.0f) / 255.0f;
+        cloudSettings.cloudFrequency = 1.05f;
+        cloudSettings.cloudColor = glm::vec3(120.0f, 128.0f, 140.0f) / 255.0f;
         cloudSettings.rainIntensity = 0.0f;
     }
     ImGui::SameLine();
@@ -2565,7 +2568,7 @@ int main(int argc, char** argv)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(width, height, "ExplorerMan", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(width, height, "ExplorerMaps", NULL, NULL);
     if (window == NULL)
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -2630,7 +2633,7 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    RunLoadingOverlay(window, overlayShader, overlayVAO, overlayVBO, 0.85f);
+    RunLoadingOverlay(window, overlayShader, overlayVAO, overlayVBO, 0.35f);
 
     Shader shaderProgram("Shaders/default.vert", "Shaders/default.frag");
     Shader lightShader("Shaders/light.vert", "Shaders/light.frag");
@@ -2706,10 +2709,15 @@ int main(int argc, char** argv)
         "Shaders/skybox_cubemap.vert",
         "Shaders/skybox_cubemap.frag"
     );
-    VolumetricCloudRenderer volumetricClouds(width, height);
-    skybox.SetProceduralCloudsEnabled(!volumetricClouds.IsReady() && !useFastRenderMode);
-    if (!volumetricClouds.GetStatusMessage().empty())
-        std::cout << volumetricClouds.GetStatusMessage() << std::endl;
+    std::unique_ptr<VolumetricCloudRenderer> volumetricClouds;
+    if (!useFastRenderMode)
+    {
+        volumetricClouds = std::make_unique<VolumetricCloudRenderer>(width, height);
+    }
+    const bool volumetricCloudsReady = volumetricClouds && volumetricClouds->IsReady();
+    skybox.SetProceduralCloudsEnabled(useFastRenderMode || !volumetricCloudsReady);
+    if (volumetricClouds && !volumetricClouds->GetStatusMessage().empty())
+        std::cout << volumetricClouds->GetStatusMessage() << std::endl;
 
     glm::vec3 modelCenter = model.GetCenter();
     float modelRadius = model.GetRadius();
@@ -2906,7 +2914,7 @@ int main(int argc, char** argv)
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             menuCursorVisible = true;
             camera.firstClick = true;
-            glfwSetWindowTitle(window, "ExplorerMan");
+            glfwSetWindowTitle(window, "ExplorerMaps");
 
             const MainMenuAction action = HandleMainMenuInput(window, mainMenu);
             if (action == MainMenuAction::StartWorld)
@@ -3177,10 +3185,10 @@ int main(int argc, char** argv)
             skyColor += mainLightColor * (0.018f + moonGlow * 0.035f);
         }
 
-        const bool useVolumetricClouds = volumetricClouds.IsReady() && !useFastRenderMode;
+        const bool useVolumetricClouds = volumetricClouds && volumetricClouds->IsReady() && !useFastRenderMode;
         if (useVolumetricClouds)
         {
-            volumetricClouds.BindSceneFramebuffer(skyColor);
+            volumetricClouds->BindSceneFramebuffer(skyColor);
         }
         else
         {
@@ -3323,13 +3331,13 @@ int main(int argc, char** argv)
 
         if (useVolumetricClouds)
         {
-            volumetricClouds.BindSkyFramebuffer(skyColor);
+            volumetricClouds->BindSkyFramebuffer(skyColor);
             const glm::vec3 cloudLightDirection = glm::length(mainLightPos - renderCamera.Position) > 0.001f
                 ? glm::normalize(mainLightPos - renderCamera.Position)
                 : skySunDirection;
             const glm::vec3 terrainSkyTop = glm::mix(glm::vec3(0.5f, 0.7f, 0.8f) * 1.05f, glm::vec3(0.34f, 0.39f, 0.45f), smoothedRainIntensity * 0.65f);
             const glm::vec3 terrainSkyBottom = glm::mix(glm::vec3(0.9f, 0.9f, 0.95f), glm::vec3(0.56f, 0.61f, 0.66f), smoothedRainIntensity * 0.65f);
-            volumetricClouds.RenderTerrainSky(
+            volumetricClouds->RenderTerrainSky(
                 view,
                 projection,
                 cloudLightDirection,
@@ -3338,7 +3346,7 @@ int main(int argc, char** argv)
                 currentFrame,
                 sunHeight,
                 smoothedRainIntensity);
-            volumetricClouds.RenderClouds(
+            volumetricClouds->RenderClouds(
                 renderCamera,
                 view,
                 projection,
@@ -3348,7 +3356,7 @@ int main(int argc, char** argv)
                 terrainSkyTop,
                 terrainSkyBottom,
                 currentFrame);
-            volumetricClouds.CompositeToScreen(activeCloudSettings, false);
+            volumetricClouds->CompositeToScreen(activeCloudSettings, false);
         }
         else
         {
@@ -3392,7 +3400,8 @@ int main(int argc, char** argv)
     glDeleteVertexArrays(1, &overlayVAO);
     glDeleteBuffers(1, &overlayVBO);
     gameAudio.Shutdown();
-    volumetricClouds.Shutdown();
+    if (volumetricClouds)
+        volumetricClouds->Shutdown();
     editor.Shutdown();
     collisionEditor.Shutdown();
     ImGui_ImplOpenGL3_Shutdown();

@@ -12,17 +12,17 @@
 
 struct SkyCloudSettings
 {
-	float coverage = 0.45f;
+	float coverage = 0.68f;
 	float speed = 1.0f;
 	float crispiness = 1.0f;
-	float curliness = 0.10f;
-	float density = 1.0f;
+	float curliness = 0.18f;
+	float density = 1.35f;
 	float lightAbsorption = 0.35f;
 	float skyDomeRadius = 600000.0f;
 	float cloudBottom = 5000.0f;
 	float cloudTop = 17000.0f;
-	float cloudFrequency = 0.80f;
-	glm::vec3 cloudColor = glm::vec3(98.0f, 105.0f, 120.0f) / 255.0f;
+	float cloudFrequency = 1.05f;
+	glm::vec3 cloudColor = glm::vec3(120.0f, 128.0f, 140.0f) / 255.0f;
 	float rainIntensity = 0.0f;
 	float lightningIntensity = 0.0f;
 	float lightningSeed = 0.0f;
