@@ -3329,7 +3329,15 @@ int main(int argc, char** argv)
                 : skySunDirection;
             const glm::vec3 terrainSkyTop = glm::mix(glm::vec3(0.5f, 0.7f, 0.8f) * 1.05f, glm::vec3(0.34f, 0.39f, 0.45f), smoothedRainIntensity * 0.65f);
             const glm::vec3 terrainSkyBottom = glm::mix(glm::vec3(0.9f, 0.9f, 0.95f), glm::vec3(0.56f, 0.61f, 0.66f), smoothedRainIntensity * 0.65f);
-            volumetricClouds.RenderTerrainSky(view, projection, cloudLightDirection, terrainSkyTop, terrainSkyBottom);
+            volumetricClouds.RenderTerrainSky(
+                view,
+                projection,
+                cloudLightDirection,
+                terrainSkyTop,
+                terrainSkyBottom,
+                currentFrame,
+                sunHeight,
+                smoothedRainIntensity);
             volumetricClouds.RenderClouds(
                 renderCamera,
                 view,

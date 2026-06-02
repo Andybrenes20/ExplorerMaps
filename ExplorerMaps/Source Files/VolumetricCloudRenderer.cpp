@@ -501,7 +501,10 @@ void VolumetricCloudRenderer::RenderTerrainSky(
 	const glm::mat4& projection,
 	const glm::vec3& lightDirection,
 	const glm::vec3& skyColorTop,
-	const glm::vec3& skyColorBottom)
+	const glm::vec3& skyColorBottom,
+	float time,
+	float sunHeight,
+	float rainIntensity)
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, skyFramebuffer.fbo);
 	glViewport(0, 0, skyFramebuffer.width, skyFramebuffer.height);
@@ -514,6 +517,9 @@ void VolumetricCloudRenderer::RenderTerrainSky(
 	glUniform3fv(glGetUniformLocation(terrainSkyShader.ID, "lightDirection"), 1, glm::value_ptr(glm::normalize(lightDirection)));
 	glUniform3fv(glGetUniformLocation(terrainSkyShader.ID, "skyColorTop"), 1, glm::value_ptr(skyColorTop));
 	glUniform3fv(glGetUniformLocation(terrainSkyShader.ID, "skyColorBottom"), 1, glm::value_ptr(skyColorBottom));
+	glUniform1f(glGetUniformLocation(terrainSkyShader.ID, "time"), time);
+	glUniform1f(glGetUniformLocation(terrainSkyShader.ID, "sunHeight"), sunHeight);
+	glUniform1f(glGetUniformLocation(terrainSkyShader.ID, "rainIntensity"), rainIntensity);
 	DrawFullscreenQuad();
 }
 

@@ -474,6 +474,66 @@ float cloudTextureFBM(vec2 uv, float heightSlice)
 	return dot(low.rgba, vec4(0.42, 0.27, 0.20, 0.11)) + dot(high.gba, vec3(0.16, 0.10, 0.06));
 }
 
+float cloudHash21(vec2 p)
+{
+	p = fract(p * vec2(127.1, 311.7));
+	p += dot(p, p + 34.71);
+	return fract(p.x * p.y);
+}
+
+float softCloudBlob(vec2 uv, vec2 center, vec2 radius)
+{
+	vec2 q = (uv - center) / max(radius, vec2(0.001));
+	float d = dot(q, q);
+	return smoothstep(1.35, 0.0, d);
+}
+
+float cloudClusterLayer(vec2 uv, float cellScale, float seed)
+{
+	vec2 p = uv * cellScale;
+	vec2 cell = floor(p);
+	vec2 local = fract(p);
+	float result = 0.0;
+
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			vec2 offset = vec2(float(x), float(y));
+			vec2 id = cell + offset + vec2(seed);
+			float h0 = cloudHash21(id + vec2(0.17));
+			float h1 = cloudHash21(id + vec2(4.83));
+			float h2 = cloudHash21(id + vec2(9.41));
+			vec2 center = offset + vec2(h0, h1);
+			vec2 radius = vec2(mix(0.46, 0.88, h2), mix(0.28, 0.62, h1));
+			float blob = softCloudBlob(local, center, radius);
+			float brokenEdge = cloudTextureFBM((id + local) * 0.33 + vec2(seed), 0.43);
+			result = max(result, blob * mix(0.72, 1.18, h0) * mix(0.76, 1.10, brokenEdge));
+		}
+	}
+
+	return clamp(result, 0.0, 1.0);
+}
+
+float cloudBankLayer(vec2 uv)
+{
+	float bank = 0.0;
+	bank = max(bank, softCloudBlob(uv, vec2(-0.88, 0.24), vec2(0.44, 0.18)) * 0.98);
+	bank = max(bank, softCloudBlob(uv, vec2(-0.52, 0.05), vec2(0.36, 0.15)) * 0.82);
+	bank = max(bank, softCloudBlob(uv, vec2(-0.20, -0.36), vec2(0.40, 0.17)) * 0.76);
+	bank = max(bank, softCloudBlob(uv, vec2(0.18, 0.32), vec2(0.48, 0.19)) * 0.84);
+	bank = max(bank, softCloudBlob(uv, vec2(0.42, -0.20), vec2(0.46, 0.20)) * 0.96);
+	bank = max(bank, softCloudBlob(uv, vec2(0.78, 0.08), vec2(0.34, 0.16)) * 0.70);
+	bank = max(bank, softCloudBlob(uv, vec2(1.04, -0.30), vec2(0.42, 0.18)) * 0.68);
+	bank = max(bank, softCloudBlob(uv, vec2(-1.12, -0.28), vec2(0.34, 0.15)) * 0.58);
+
+	float lumpyInterior = cloudClusterLayer(uv + vec2(12.4, -3.9), 4.4, 23.0);
+	float edgeNoise = cloudTextureFBM(uv * 1.55 + vec2(8.5, -1.7), 0.68);
+	float erodedEdge = smoothstep(0.08, 0.70, bank + lumpyInterior * 0.28 - (1.0 - edgeNoise) * 0.26);
+
+	return clamp(erodedEdge, 0.0, 1.0);
+}
+
 vec4 renderTerrainCloudDeck(vec3 worldDir, vec4 bg)
 {
 	float skyAmount = smoothstep(-0.04, 0.12, worldDir.y);
@@ -491,6 +551,7 @@ vec4 renderTerrainCloudDeck(vec3 worldDir, vec4 bg)
 	vec2 baseUv = skyUv * (0.145 / projectionScale) + wind;
 	vec2 detailUv = skyUv * (0.390 / projectionScale) + wind * 1.45 + sideWind;
 	vec2 puffUv = skyUv * (0.720 / projectionScale) + wind * 1.85 - sideWind * 0.40;
+	vec2 clusterUv = skyUv * (0.92 / projectionScale) + wind * 0.18 + cameraPosition.xz * 0.000015;
 
 	vec3 weather = texture(weatherTex, weatherUv).rgb;
 	float broad = weather.r;
@@ -498,15 +559,19 @@ vec4 renderTerrainCloudDeck(vec3 worldDir, vec4 bg)
 	float mid = cloudTextureFBM(detailUv + vec2(11.0, 2.5), 0.56);
 	float puffs = cloudTextureFBM(puffUv + vec2(-6.0, 18.0), 0.74);
 	float erode = textureLod(worley32, vec3(puffUv * (1.35 + curliness), 0.42), 0.0).r;
+	float cloudIslands = cloudClusterLayer(clusterUv, 1.25, 3.0);
+	cloudIslands = max(cloudIslands, cloudClusterLayer(clusterUv + vec2(7.3, -2.1), 2.05, 11.0) * 0.74);
+	float cloudBanks = cloudBankLayer(skyUv + wind * 0.72 + sideWind * 0.20);
+	cloudIslands = max(cloudIslands * 0.78, cloudBanks);
 
 	float coverage = clamp(coverage_multiplier, 0.0, 1.0);
-	float thresholdValue = mix(0.44, 0.22, coverage);
-	float softness = mix(0.34, 0.18, clamp(crispiness / 80.0, 0.0, 1.0));
-	float shape = broad * 0.26 + low * 0.38 + mid * 0.25 + puffs * 0.18 - erode * (0.075 + curliness * 0.030);
+	float thresholdValue = mix(0.40, 0.18, coverage);
+	float softness = mix(0.36, 0.20, clamp(crispiness / 80.0, 0.0, 1.0));
+	float shape = cloudIslands * 0.50 + broad * 0.18 + low * 0.27 + mid * 0.20 + puffs * 0.17 - erode * (0.060 + curliness * 0.025);
 	float body = smoothstep(thresholdValue, thresholdValue + softness, shape);
-	float sheet = smoothstep(thresholdValue - 0.10, thresholdValue + softness * 1.35, low * 0.54 + mid * 0.28 + broad * 0.22);
+	float sheet = smoothstep(thresholdValue - 0.12, thresholdValue + softness * 1.40, cloudIslands * 0.38 + low * 0.42 + mid * 0.24 + broad * 0.16);
 
-	float lowerDeck = smoothstep(thresholdValue - 0.16, thresholdValue + 0.22, broad * 0.72 + low * 0.28);
+	float lowerDeck = smoothstep(thresholdValue - 0.18, thresholdValue + 0.22, cloudIslands * 0.34 + broad * 0.48 + low * 0.26);
 	float horizonBand = smoothstep(-0.02, 0.22, worldDir.y) * (1.0 - smoothstep(0.70, 0.98, worldDir.y));
 	float zenithFade = 1.0 - smoothstep(0.94, 1.0, worldDir.y);
 	float alpha = body * (0.82 + densityFactor * 12.0);

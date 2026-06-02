@@ -29,7 +29,10 @@ public:
 		const glm::mat4& projection,
 		const glm::vec3& lightDirection,
 		const glm::vec3& skyColorTop,
-		const glm::vec3& skyColorBottom);
+		const glm::vec3& skyColorBottom,
+		float time,
+		float sunHeight,
+		float rainIntensity);
 	void RenderClouds(
 		const Camera& camera,
 		const glm::mat4& view,
