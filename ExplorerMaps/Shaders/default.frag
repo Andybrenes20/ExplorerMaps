@@ -253,10 +253,10 @@ void main()
 
 		vec3 lampDirection = normalize(toLamp);
 		float lampDiffuse = max(dot(normal, lampDirection), 0.0f);
-		lampContribution += lampLightColors[i] * attenuation * (0.08f + lampDiffuse * lampLightIntensities[i] * (1.0f + rain * 0.35f));
-		float downwardPool = attenuation * smoothstep(0.18f, 0.86f, normal.y);
-		lampContribution += lampLightColors[i] * downwardPool * lampLightIntensities[i] * (0.32f + rain * 0.24f);
-		lampHaloContribution += lampLightColors[i] * wideHalo * (0.05f + roadMask * (0.15f + rain * 0.30f));
+		float nonGroundLampMask = 1.0f - horizontalSurface * 0.92f;
+		lampContribution += lampLightColors[i] * attenuation * nonGroundLampMask *
+			(0.08f + lampDiffuse * lampLightIntensities[i] * (1.0f + rain * 0.35f));
+		lampHaloContribution += lampLightColors[i] * wideHalo * nonGroundLampMask * 0.035f;
 
 		float lampHeadMask = 1.0f - smoothstep(0.0f, 14.0f, distanceToLamp);
 		emissiveLamp += lampLightColors[i] * lampHeadMask * (3.2f + rain * 1.4f);
@@ -275,19 +275,27 @@ void main()
 	float windowBand = smoothstep(0.12f, 0.30f, windowBandY) *
 		(1.0f - smoothstep(0.72f, 0.92f, windowBandY));
 	float windowPattern = step(0.48f, windowSeed);
-	float windowGlowMask = glassMask * windowBand * windowPattern * smoothstep(0.10f, 0.72f, nightFactor);
+	float facadeAxisBlend = step(abs(normal.x), abs(normal.z));
+	float windowAcross = mix(windowLocal.z, windowLocal.x, facadeAxisBlend);
+	float windowColumn = 1.0f - smoothstep(0.24f, 0.46f, abs(windowAcross));
+	float verticalFacade = facadeMask * (1.0f - smoothstep(0.30f, 0.68f, abs(normal.y)));
+	float darkPaneMask = verticalFacade * (1.0f - glassMask) *
+		(1.0f - smoothstep(0.055f, 0.24f, baseLuma)) *
+		(0.45f + windowColumn * 0.55f);
+	float windowSurfaceMask = verticalFacade * max(glassMask, darkPaneMask * 0.72f);
+	float windowGlowMask = windowSurfaceMask * windowBand * windowPattern * smoothstep(0.10f, 0.72f, nightFactor);
 	vec3 warmWindow = mix(vec3(1.0f, 0.56f, 0.25f), vec3(1.0f, 0.82f, 0.48f), Hash31(windowCell + vec3(17.0f)));
-	vec3 windowEmissive = warmWindow * windowGlowMask * (0.75f + nightFactor * 1.25f);
-	float windowAuraMask = facadeMask * windowPattern * exp(-(windowLocal.y * windowLocal.y) * 14.0f) *
-		smoothstep(0.10f, 0.80f, nightFactor) * (0.15f + glassMask * 0.25f);
-	vec3 windowAura = warmWindow * windowAuraMask * 0.16f;
+	vec3 windowEmissive = warmWindow * windowGlowMask * (0.48f + nightFactor * 0.92f);
+	float windowAuraMask = verticalFacade * windowPattern * exp(-(windowLocal.y * windowLocal.y) * 14.0f) *
+		smoothstep(0.10f, 0.80f, nightFactor) * (0.08f + windowSurfaceMask * 0.14f);
+	vec3 windowAura = warmWindow * windowAuraMask * 0.08f;
 	litColor += windowEmissive;
 	litColor += windowAura;
 	litColor += neonEmissive;
 
 	vec3 bloomSource = windowEmissive + windowAura + neonEmissive + emissiveLamp * nightRainGlow + lampHaloContribution * nightRainGlow;
-	float bloomAmount = clamp(length(bloomSource), 0.0f, 4.0f);
-	litColor += bloomSource * (0.10f + rain * 0.08f + fresnel * 0.08f) * bloomAmount;
+	float bloomAmount = clamp(length(bloomSource), 0.0f, 2.2f);
+	litColor += bloomSource * (0.055f + rain * 0.045f + fresnel * 0.045f) * bloomAmount;
 
 	vec3 visibleObjectColor = base.rgb * (1.38f + dayFactor * 0.28f) + skyBounceColor * 0.10f + vec3(0.045f);
 	litColor = mix(litColor, max(litColor, visibleObjectColor), clamp(objectLightBoost, 0.0f, 1.0f));

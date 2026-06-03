@@ -1,16 +1,18 @@
 #include "Mesh.h"
 
-Mesh::Mesh(std::vector <Vertex>& vertices, std::vector <GLuint>& indices, std::vector <Texture>& textures)
+#include<utility>
+
+Mesh::Mesh(std::vector<Vertex> vertices, std::vector<GLuint> indices, std::vector<Texture> textures)
 {
-	Mesh::vertices = vertices;
-	Mesh::indices = indices;
-	Mesh::textures = textures;
+	Mesh::vertices = std::move(vertices);
+	Mesh::indices = std::move(indices);
+	Mesh::textures = std::move(textures);
 
 	VAO.Bind();
 	// Generates Vertex Buffer Object and links it to vertices
-	VBO VBO(reinterpret_cast<GLfloat*>(vertices.data()), static_cast<GLsizeiptr>(vertices.size() * sizeof(Vertex)));
+	VBO VBO(reinterpret_cast<GLfloat*>(Mesh::vertices.data()), static_cast<GLsizeiptr>(Mesh::vertices.size() * sizeof(Vertex)));
 	// Generates Element Buffer Object and links it to indices
-	EBO EBO(indices.data(), static_cast<GLsizeiptr>(indices.size() * sizeof(GLuint)));
+	EBO EBO(Mesh::indices.data(), static_cast<GLsizeiptr>(Mesh::indices.size() * sizeof(GLuint)));
 	// Links VBO attributes such as coordinates and colors to VAO
 	VAO.LinkAttrib(VBO, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);
 	VAO.LinkAttrib(VBO, 1, 3, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));
@@ -58,4 +60,3 @@ void Mesh::Draw
 	// Draw the actual mesh
 	glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, 0);
 }
-

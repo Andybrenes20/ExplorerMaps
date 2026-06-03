@@ -52,12 +52,16 @@ const float cameraFarPlane = 3600.0f;
 const float celestialOrbitRadius = 3200.0f;
 const float maxSunHeight = 3000.0f;
 const float maxMoonHeightFactor = 0.82f;
+const float initialLoadingOverlaySeconds = 0.12f;
+const float inGameLoadingOverlaySeconds = 0.45f;
 
 // --- Caminar -------------------------------------------
 const float walkEyeHeight = 6.0f;
 const float walkProbeRadius = 8.0f;
 const float walkMaxStepUp = 12.0f;
 const float walkMaxDropDown = 45.0f;
+const float walkMaxSnapDropPerFrame = 14.0f;
+const float walkHorizontalSnapGraceDistance = 10.0f;
 const float walkMaxSlopeDegrees = 68.0f;
 const float walkSpeed = 30.0f;
 const float cameraCollisionRadius = 6.0f;
@@ -65,6 +69,7 @@ const float cameraCollisionRadius = 6.0f;
 // --- Opciones ----------------w--------------------------
 const bool showCoordinatesInWindowTitle = true;
 const bool useFastRenderMode = true;
+const bool useFastProceduralCar = true;
 const glm::vec3 blockedZoneMin = glm::vec3(240.0f, -260.0f, 360.0f);
 const glm::vec3 blockedZoneMax = glm::vec3(310.0f, -150.0f, 435.0f);
 
@@ -79,6 +84,8 @@ const float lampCoreSize = 0.20f;
 const float lampHaloSize = 20.0f;
 constexpr std::size_t maxLampLightCount = 8;
 constexpr std::size_t maxAutomaticStreetLampCount = 8;
+const bool useDefaultStreetLampLights = false;
+const bool useAutomaticStreetLampLights = false;
 const std::array<glm::vec3, 2> defaultLampLightPositions =
 {
     glm::vec3(130.0f, -159.0f, 572.0f),
@@ -181,10 +188,15 @@ struct DrivableCarState
     float wheelSpinDegrees = 0.0f;
     float cameraYawOffsetDegrees = 0.0f;
     float cameraHeightOffset = 0.0f;
+    glm::vec3 entryPosition = glm::vec3(0.0f);
     GroundSnapCache groundSnapCache;
     bool groundHeightInitialized = false;
+    bool spawned = false;
     bool driving = false;
+    bool hasEntryPosition = false;
+    bool exitedThisFrame = false;
     bool interactWasDown = false;
+    bool summonWasDown = false;
 };
 
 struct GameplayGamepadInput
@@ -598,6 +610,20 @@ ProceduralCarWheelLayout ComputeCarWheelLayout(const Model& carModel)
     return layout;
 }
 
+ProceduralCarWheelLayout DefaultFastCarWheelLayout()
+{
+    ProceduralCarWheelLayout layout;
+    layout.radius = 3.2f;
+    layout.width = 1.4f;
+    layout.centers = {
+        glm::vec3(-7.6f, 3.2f, 13.8f),
+        glm::vec3(7.6f, 3.2f, 13.8f),
+        glm::vec3(-7.6f, 3.2f, -13.6f),
+        glm::vec3(7.6f, 3.2f, -13.6f)
+    };
+    return layout;
+}
+
 glm::mat4 BuildCarTransform(const DrivableCarState& car, const glm::vec3& localAnchorOffset, float visualScale)
 {
     constexpr float carVisualYawOffset = 90.0f;
@@ -618,6 +644,46 @@ void DrawDrivableCar(
     glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.46f);
     carModel.Draw(shader, camera, BuildCarTransform(car, localAnchorOffset, visualScale));
     glUniform1f(glGetUniformLocation(shader.ID, "objectLightBoost"), 0.0f);
+}
+
+void DrawFastProceduralCarBody(
+    Shader& lightShader,
+    Camera& camera,
+    GLuint cubeVAO,
+    const DrivableCarState& car,
+    const glm::vec3& localAnchorOffset,
+    float visualScale,
+    const glm::vec3& dirLightDirection)
+{
+    const glm::mat4 carBaseTransform = BuildCarTransform(car, localAnchorOffset, visualScale);
+
+    lightShader.Activate();
+    camera.Matrix(lightShader, "camMatrix");
+    glUniform3f(glGetUniformLocation(lightShader.ID, "dirLightDirection"), dirLightDirection.x, dirLightDirection.y, dirLightDirection.z);
+
+    auto drawPart = [&](const glm::vec3& offset, const glm::vec3& scale, const glm::vec4& color)
+    {
+        const glm::mat4 model =
+            carBaseTransform *
+            glm::translate(glm::mat4(1.0f), offset) *
+            glm::scale(glm::mat4(1.0f), scale);
+        glUniformMatrix4fv(glGetUniformLocation(lightShader.ID, "model"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniform4f(glGetUniformLocation(lightShader.ID, "lightColor"), color.x, color.y, color.z, color.w);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+    };
+
+    glBindVertexArray(cubeVAO);
+    drawPart(glm::vec3(0.0f, 4.4f, 0.0f), glm::vec3(16.0f, 5.0f, 38.0f), glm::vec4(0.95f, 0.42f, 0.24f, 1.0f));
+    drawPart(glm::vec3(0.0f, 8.8f, 1.8f), glm::vec3(11.8f, 5.6f, 16.0f), glm::vec4(0.98f, 0.54f, 0.32f, 1.0f));
+    drawPart(glm::vec3(0.0f, 9.4f, 10.3f), glm::vec3(10.4f, 3.2f, 0.9f), glm::vec4(0.18f, 0.32f, 0.42f, 1.0f));
+    drawPart(glm::vec3(0.0f, 9.1f, -6.8f), glm::vec3(10.0f, 2.8f, 0.9f), glm::vec4(0.15f, 0.26f, 0.34f, 1.0f));
+    drawPart(glm::vec3(-8.3f, 5.1f, 1.0f), glm::vec3(0.7f, 2.4f, 23.0f), glm::vec4(0.80f, 0.26f, 0.16f, 1.0f));
+    drawPart(glm::vec3(8.3f, 5.1f, 1.0f), glm::vec3(0.7f, 2.4f, 23.0f), glm::vec4(0.80f, 0.26f, 0.16f, 1.0f));
+    drawPart(glm::vec3(-4.8f, 4.9f, 19.3f), glm::vec3(3.6f, 1.0f, 0.8f), glm::vec4(1.0f, 0.86f, 0.48f, 1.0f));
+    drawPart(glm::vec3(4.8f, 4.9f, 19.3f), glm::vec3(3.6f, 1.0f, 0.8f), glm::vec4(1.0f, 0.86f, 0.48f, 1.0f));
+    drawPart(glm::vec3(-5.0f, 4.7f, -19.3f), glm::vec3(3.2f, 0.9f, 0.8f), glm::vec4(1.0f, 0.10f, 0.06f, 1.0f));
+    drawPart(glm::vec3(5.0f, 4.7f, -19.3f), glm::vec3(3.2f, 0.9f, 0.8f), glm::vec4(1.0f, 0.10f, 0.06f, 1.0f));
+    glBindVertexArray(0);
 }
 
 void DrawProceduralCarWheels(
@@ -707,21 +773,101 @@ void UpdateDrivableCar(
     float currentFrame,
     float deltaTime)
 {
+    car.exitedThisFrame = false;
+
     const bool interactDown = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || gamepad.interactDown;
     const bool interactPressed = interactDown && !car.interactWasDown;
-    const bool lookingAtCar = IsLookingAtCar(camera, car);
+    const bool summonDown = glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS;
+    const bool summonPressed = summonDown && !car.summonWasDown;
+    const bool lookingAtCar = car.spawned && IsLookingAtCar(camera, car);
+
+    if (summonPressed && !car.driving)
+    {
+        if (car.spawned)
+        {
+            car.spawned = false;
+            car.speed = 0.0f;
+            car.steeringAmount = 0.0f;
+            car.yawRateDegrees = 0.0f;
+            car.wheelSpinDegrees = 0.0f;
+            car.groundSnapCache.valid = false;
+
+            interaction.message = "COCHE GUARDADO";
+            interaction.messageUntil = currentFrame + 1.6f;
+        }
+        else
+        {
+            car.spawned = true;
+
+            glm::vec3 forward = glm::vec3(camera.Orientation.x, 0.0f, camera.Orientation.z);
+            if (glm::length(forward) < 0.001f)
+            {
+                forward = CarForward(car.yawDegrees);
+            }
+            else
+            {
+                forward = glm::normalize(forward);
+            }
+
+            glm::vec3 spawnPosition = camera.Position + forward * 42.0f;
+            spawnPosition.y = camera.Position.y - walkEyeHeight;
+
+            glm::vec3 snappedSpawn;
+            if (cityModel.TrySnapToWalkableSurface(
+                spawnPosition + glm::vec3(0.0f, 10.0f, 0.0f),
+                sceneModelTransform,
+                18.0f,
+                10.0f,
+                24.0f,
+                85.0f,
+                walkMaxSlopeDegrees,
+                snappedSpawn))
+            {
+                car.position = snappedSpawn - glm::vec3(0.0f, 10.0f, 0.0f);
+                car.groundHeightInitialized = true;
+            }
+            else
+            {
+                car.position = spawnPosition;
+                car.groundHeightInitialized = false;
+            }
+
+            car.yawDegrees = glm::degrees(std::atan2(forward.z, forward.x));
+            car.visualYawDegrees = car.yawDegrees;
+            car.yawRateDegrees = 0.0f;
+            car.speed = 0.0f;
+            car.steeringAmount = 0.0f;
+            car.cameraYawOffsetDegrees = 0.0f;
+            car.cameraHeightOffset = 0.0f;
+            car.groundSnapCache.valid = false;
+
+            interaction.message = "COCHE APARECIDO  |  E CONDUCIR";
+            interaction.messageUntil = currentFrame + 2.0f;
+        }
+    }
 
     if (interactPressed)
     {
         if (car.driving)
         {
             car.driving = false;
-            camera.Position = car.position - CarForward(car.yawDegrees) * 34.0f + glm::vec3(0.0f, 10.0f, 0.0f);
+            if (car.hasEntryPosition)
+            {
+                camera.Position = car.entryPosition;
+            }
+            else
+            {
+                camera.Position = car.position - CarForward(car.yawDegrees) * 34.0f + glm::vec3(0.0f, 10.0f, 0.0f);
+            }
+            car.hasEntryPosition = false;
+            car.exitedThisFrame = true;
             interaction.message = "SALISTE DEL COCHE";
             interaction.messageUntil = currentFrame + 1.6f;
         }
         else if (lookingAtCar)
         {
+            car.entryPosition = camera.Position;
+            car.hasEntryPosition = true;
             car.driving = true;
             camera.flyMode = false;
             camera.firstClick = true;
@@ -730,13 +876,21 @@ void UpdateDrivableCar(
         }
     }
     car.interactWasDown = interactDown;
+    car.summonWasDown = summonDown;
+
+    if (!car.spawned)
+    {
+        interaction.message = "C  APARECER COCHE";
+        interaction.messageUntil = currentFrame + 0.1f;
+        return;
+    }
 
     if (!car.driving)
     {
         if (lookingAtCar)
         {
             interaction.targetName = "Coche";
-            interaction.message = "E  CONDUCIR COCHE";
+            interaction.message = "E  CONDUCIR COCHE  |  C  APARECER";
             interaction.messageUntil = currentFrame + 0.1f;
         }
         return;
@@ -1282,6 +1436,48 @@ void AddOverlayRect(std::vector<OverlayVertex>& vertices, float x, float y, floa
     vertices.push_back({ x0, y1, color.r, color.g, color.b, color.a });
 }
 
+void AddOverlayTriangle(
+    std::vector<OverlayVertex>& vertices,
+    float x0, float y0,
+    float x1, float y1,
+    float x2, float y2,
+    const glm::vec4& color)
+{
+    const auto addVertex = [&](float x, float y)
+    {
+        vertices.push_back({
+            (x / width) * 2.0f - 1.0f,
+            1.0f - (y / height) * 2.0f,
+            color.r, color.g, color.b, color.a
+        });
+    };
+
+    addVertex(x0, y0);
+    addVertex(x1, y1);
+    addVertex(x2, y2);
+}
+
+void AddOverlayCircle(std::vector<OverlayVertex>& vertices, float centerX, float centerY, float radius, int segments, const glm::vec4& color)
+{
+    const float pi = 3.14159265359f;
+    const int safeSegments = std::max(segments, 6);
+    for (int i = 0; i < safeSegments; ++i)
+    {
+        const float a0 = (static_cast<float>(i) / safeSegments) * pi * 2.0f;
+        const float a1 = (static_cast<float>(i + 1) / safeSegments) * pi * 2.0f;
+        AddOverlayTriangle(
+            vertices,
+            centerX,
+            centerY,
+            centerX + std::cos(a0) * radius,
+            centerY + std::sin(a0) * radius,
+            centerX + std::cos(a1) * radius,
+            centerY + std::sin(a1) * radius,
+            color
+        );
+    }
+}
+
 void AddOverlayText(std::vector<OverlayVertex>& vertices, const std::string& text, float x, float y, float scale, const glm::vec4& color)
 {
     if (text.empty())
@@ -1682,22 +1878,114 @@ void DrawMainMenuOverlay(const MainMenuState& menu, Shader& overlayShader, GLuin
     glEnable(GL_DEPTH_TEST);
 }
 
-void DrawLoadingScreenOverlay(Shader& overlayShader, GLuint overlayVAO, GLuint overlayVBO)
+void DrawLoadingScreenOverlay(
+    Shader& overlayShader,
+    GLuint overlayVAO,
+    GLuint overlayVBO,
+    float progress = -1.0f,
+    const char* statusText = "PREPARANDO EL MAPA")
 {
+    (void)statusText;
+
     std::vector<OverlayVertex> vertices;
-    const float pulse = (std::sin(static_cast<float>(glfwGetTime()) * 5.0f) + 1.0f) * 0.5f;
-    const float barW = 360.0f;
-    const float progressW = barW * (0.35f + pulse * 0.55f);
+    const float now = static_cast<float>(glfwGetTime());
+    const float pi = 3.14159265359f;
+    const float pulse = (std::sin(now * 4.8f) + 1.0f) * 0.5f;
+    const float autoProgress = 0.10f + std::fmod(now * 0.18f, 0.78f);
+    progress = progress >= 0.0f ? glm::clamp(progress, 0.0f, 1.0f) : autoProgress;
+
     const float centerX = width * 0.5f;
     const float centerY = height * 0.5f;
+    const float panelW = 620.0f;
+    const float panelH = 270.0f;
+    const float panelX = centerX - panelW * 0.5f;
+    const float panelY = centerY - panelH * 0.5f;
+    const float barW = 430.0f;
+    const float barH = 20.0f;
+    const float barX = centerX - barW * 0.5f;
+    const float barY = centerY + 48.0f;
+    const float progressW = barW * progress;
+    const glm::vec4 bgTop(0.008f, 0.012f, 0.021f, 1.0f);
+    const glm::vec4 bgBottom(0.018f, 0.027f, 0.042f, 1.0f);
+    const glm::vec4 panelColor(0.022f, 0.030f, 0.044f, 0.94f);
+    const glm::vec4 accent(1.0f, 0.78f, 0.22f, 1.0f);
+    const glm::vec4 cyan(0.24f, 0.66f, 0.84f, 1.0f);
+    const glm::vec4 textMain(0.96f, 0.92f, 0.78f, 1.0f);
+    const glm::vec4 textMuted(0.62f, 0.72f, 0.82f, 1.0f);
 
-    AddOverlayRect(vertices, 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), glm::vec4(0.010f, 0.014f, 0.022f, 1.0f));
-    AddOverlayRect(vertices, centerX - 270.0f, centerY - 120.0f, 540.0f, 230.0f, glm::vec4(0.025f, 0.034f, 0.050f, 0.92f));
-    AddOverlayRect(vertices, centerX - 270.0f, centerY - 120.0f, 540.0f, 6.0f, glm::vec4(0.95f, 0.72f, 0.20f, 1.0f));
-    AddOverlayText(vertices, "CARGANDO EXPLORERMAPS", centerX - 230.0f, centerY - 78.0f, 1.18f, glm::vec4(1.0f, 0.86f, 0.34f, 1.0f));
-    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, barW, 18.0f, glm::vec4(0.07f, 0.09f, 0.13f, 1.0f));
-    AddOverlayRect(vertices, centerX - barW * 0.5f, centerY - 12.0f, progressW, 18.0f, glm::vec4(0.28f, 0.56f, 0.72f, 1.0f));
-    AddOverlayText(vertices, "PREPARANDO EL MAPA...", centerX - 132.0f, centerY + 44.0f, 0.72f, glm::vec4(0.70f, 0.78f, 0.88f, 1.0f));
+    AddOverlayRect(vertices, 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), bgTop);
+    AddOverlayRect(vertices, 0.0f, height * 0.56f, static_cast<float>(width), height * 0.44f, bgBottom);
+
+    for (int i = 0; i < 22; ++i)
+    {
+        const float lane = static_cast<float>(i);
+        const float x = std::fmod(lane * 118.0f + now * 18.0f, static_cast<float>(width) + 160.0f) - 80.0f;
+        const float blockH = 34.0f + std::fmod(lane * 37.0f, 90.0f);
+        const float alpha = 0.12f + 0.06f * std::sin(now * 2.0f + lane);
+        AddOverlayRect(vertices, x, height - blockH - 44.0f, 56.0f, blockH, glm::vec4(0.05f, 0.09f, 0.14f, alpha));
+        AddOverlayRect(vertices, x + 9.0f, height - blockH - 30.0f, 8.0f, blockH * 0.45f, glm::vec4(0.90f, 0.68f, 0.24f, alpha * 0.55f));
+        AddOverlayRect(vertices, x + 31.0f, height - blockH - 22.0f, 8.0f, blockH * 0.32f, glm::vec4(0.20f, 0.55f, 0.76f, alpha * 0.45f));
+    }
+
+    for (int i = 0; i < 6; ++i)
+    {
+        const float scanY = panelY - 86.0f + i * 46.0f + std::fmod(now * 24.0f, 46.0f);
+        AddOverlayRect(vertices, 0.0f, scanY, static_cast<float>(width), 1.2f, glm::vec4(0.15f, 0.45f, 0.65f, 0.035f));
+    }
+
+    AddOverlayRect(vertices, panelX + 12.0f, panelY + 14.0f, panelW, panelH, glm::vec4(0.0f, 0.0f, 0.0f, 0.30f));
+    AddOverlayRect(vertices, panelX, panelY, panelW, panelH, panelColor);
+    AddOverlayRect(vertices, panelX, panelY, panelW, 6.0f, accent);
+    AddOverlayRect(vertices, panelX, panelY + panelH - 6.0f, panelW, 6.0f, glm::vec4(0.10f, 0.13f, 0.18f, 0.95f));
+
+    const float spinnerX = panelX + 96.0f;
+    const float spinnerY = panelY + 94.0f;
+    AddOverlayCircle(vertices, spinnerX, spinnerY, 43.0f + pulse * 3.0f, 32, glm::vec4(0.06f, 0.11f, 0.16f, 0.86f));
+    AddOverlayCircle(vertices, spinnerX, spinnerY, 25.0f, 28, glm::vec4(0.020f, 0.030f, 0.044f, 1.0f));
+    for (int i = 0; i < 12; ++i)
+    {
+        const float slot = static_cast<float>(i) / 12.0f;
+        const float angle = slot * pi * 2.0f + now * 4.4f;
+        const float tail = std::fmod(slot + now * 1.35f, 1.0f);
+        const float alpha = 0.18f + (1.0f - tail) * 0.78f;
+        const float dotRadius = 3.2f + (1.0f - tail) * 2.6f;
+        AddOverlayCircle(
+            vertices,
+            spinnerX + std::cos(angle) * 34.0f,
+            spinnerY + std::sin(angle) * 34.0f,
+            dotRadius,
+            10,
+            glm::vec4(cyan.r, cyan.g, cyan.b, alpha)
+        );
+    }
+
+    const int dotCount = static_cast<int>(std::fmod(now * 2.4f, 4.0f));
+    std::string title = "CARGANDO MUNDO";
+    for (int i = 0; i < dotCount; ++i)
+        title += ".";
+    AddOverlayText(vertices, title, panelX + 166.0f, panelY + 64.0f, 1.26f, textMain);
+
+    AddOverlayRect(vertices, barX - 2.0f, barY - 2.0f, barW + 4.0f, barH + 4.0f, glm::vec4(0.0f, 0.0f, 0.0f, 0.30f));
+    AddOverlayRect(vertices, barX, barY, barW, barH, glm::vec4(0.055f, 0.070f, 0.100f, 1.0f));
+    AddOverlayRect(vertices, barX, barY, progressW, barH, glm::vec4(0.20f, 0.52f, 0.74f, 1.0f));
+    AddOverlayRect(vertices, barX, barY, progressW, 4.0f, glm::vec4(0.58f, 0.90f, 1.0f, 0.68f));
+
+    const float shineX = barX + std::fmod(now * 240.0f, barW + 80.0f) - 80.0f;
+    const float shineStart = std::max(barX, shineX);
+    const float shineEnd = std::min(barX + progressW, shineX + 86.0f);
+    if (shineEnd > shineStart)
+        AddOverlayRect(vertices, shineStart, barY, shineEnd - shineStart, barH, glm::vec4(0.86f, 0.96f, 1.0f, 0.32f));
+
+    for (int i = 0; i < 5; ++i)
+    {
+        const float markerX = barX + (barW * i / 4.0f);
+        const bool reached = progress >= static_cast<float>(i) / 4.0f;
+        AddOverlayRect(vertices, markerX - 1.5f, barY - 6.0f, 3.0f, barH + 12.0f, reached ? accent : glm::vec4(0.20f, 0.24f, 0.30f, 0.75f));
+    }
+
+    std::ostringstream percent;
+    percent << static_cast<int>(std::round(progress * 100.0f)) << "%";
+    AddOverlayText(vertices, percent.str(), centerX - 28.0f, barY + 44.0f, 0.76f, accent);
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -1712,6 +2000,21 @@ void DrawLoadingScreenOverlay(Shader& overlayShader, GLuint overlayVAO, GLuint o
 
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
+}
+
+void PresentLoadingFrame(
+    GLFWwindow* window,
+    Shader& overlayShader,
+    GLuint overlayVAO,
+    GLuint overlayVBO,
+    float progress,
+    const char* statusText)
+{
+    glClearColor(0.015f, 0.018f, 0.026f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    DrawLoadingScreenOverlay(overlayShader, overlayVAO, overlayVBO, progress, statusText);
+    glfwSwapBuffers(window);
+    glfwPollEvents();
 }
 
 MainMenuAction HandleMainMenuInput(GLFWwindow* window, MainMenuState& menu)
@@ -1782,16 +2085,26 @@ MainMenuAction HandleMainMenuInput(GLFWwindow* window, MainMenuState& menu)
     return action;
 }
 
-void RunLoadingOverlay(GLFWwindow* window, Shader& overlayShader, GLuint overlayVAO, GLuint overlayVBO, float seconds)
+void RunLoadingOverlay(
+    GLFWwindow* window,
+    Shader& overlayShader,
+    GLuint overlayVAO,
+    GLuint overlayVBO,
+    float seconds,
+    float progressStart = -1.0f,
+    float progressEnd = -1.0f,
+    const char* statusText = "PREPARANDO EL MAPA")
 {
-    const float endTime = static_cast<float>(glfwGetTime()) + seconds;
+    const float startTime = static_cast<float>(glfwGetTime());
+    const float endTime = startTime + seconds;
     while (!glfwWindowShouldClose(window) && static_cast<float>(glfwGetTime()) < endTime)
     {
-        glClearColor(0.015f, 0.018f, 0.026f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        DrawLoadingScreenOverlay(overlayShader, overlayVAO, overlayVBO);
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        const float now = static_cast<float>(glfwGetTime());
+        const float t = seconds > 0.0f ? glm::clamp((now - startTime) / seconds, 0.0f, 1.0f) : 1.0f;
+        const float progress = progressStart >= 0.0f && progressEnd >= 0.0f
+            ? glm::mix(progressStart, progressEnd, t)
+            : -1.0f;
+        PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, progress, statusText);
     }
 }
 
@@ -2411,27 +2724,30 @@ std::vector<Light> BuildRuntimeLampLights(const std::vector<Light>& sceneLights,
     for (const Light& light : sceneLights)
         AddRuntimeLampCandidate(candidates, light, focusPosition);
 
-    const int centerZIndex = static_cast<int>(std::round((focusPosition.z - streetLampGridBaseZ) / streetLampGridSpacingZ));
-    const std::array<float, 2> streetLampXPositions =
+    if (useAutomaticStreetLampLights)
     {
-        defaultLampLightPositions[0].x,
-        defaultLampLightPositions[1].x
-    };
-
-    for (int zOffset = -5; zOffset <= 5; ++zOffset)
-    {
-        const float z = streetLampGridBaseZ + static_cast<float>(centerZIndex + zOffset) * streetLampGridSpacingZ;
-        for (float x : streetLampXPositions)
+        const int centerZIndex = static_cast<int>(std::round((focusPosition.z - streetLampGridBaseZ) / streetLampGridSpacingZ));
+        const std::array<float, 2> streetLampXPositions =
         {
-            Light light;
-            light.id = "auto_street_lamp";
-            light.name = "Auto Street Lamp";
-            light.position = glm::vec3(x, -156.0f, z);
-            light.color = defaultLampLightColor;
-            light.radius = 62.0f;
-            light.intensity = 1.85f;
-            light.helperSize = 0.0f;
-            AddRuntimeLampCandidate(candidates, light, focusPosition);
+            defaultLampLightPositions[0].x,
+            defaultLampLightPositions[1].x
+        };
+
+        for (int zOffset = -5; zOffset <= 5; ++zOffset)
+        {
+            const float z = streetLampGridBaseZ + static_cast<float>(centerZIndex + zOffset) * streetLampGridSpacingZ;
+            for (float x : streetLampXPositions)
+            {
+                Light light;
+                light.id = "auto_street_lamp";
+                light.name = "Auto Street Lamp";
+                light.position = glm::vec3(x, -156.0f, z);
+                light.color = defaultLampLightColor;
+                light.radius = 62.0f;
+                light.intensity = 1.85f;
+                light.helperSize = 0.0f;
+                AddRuntimeLampCandidate(candidates, light, focusPosition);
+            }
         }
     }
 
@@ -2577,7 +2893,7 @@ int main(int argc, char** argv)
     }
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);
+    glfwSwapInterval(1);
     gladLoadGL();
     glViewport(0, 0, width, height);
 
@@ -2633,12 +2949,14 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    RunLoadingOverlay(window, overlayShader, overlayVAO, overlayVBO, 0.35f);
+    RunLoadingOverlay(window, overlayShader, overlayVAO, overlayVBO, initialLoadingOverlaySeconds, 0.02f, 0.08f, "INICIANDO CARGA");
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.10f, "PREPARANDO SHADERS");
 
     Shader shaderProgram("Shaders/default.vert", "Shaders/default.frag");
     Shader lightShader("Shaders/light.vert", "Shaders/light.frag");
     Shader sphereShader("Shaders/sphere.vert", "Shaders/sphere.frag");
     Shader rainShader("Shaders/screen.vert", "Shaders/rain_overlay.frag");
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.18f, "CREANDO GEOMETRIA BASE");
 
     GLuint lampGlowVAO, lampGlowVBO, lampGlowEBO;
     GLuint carWheelVAO, carWheelVBO, carWheelEBO;
@@ -2670,6 +2988,7 @@ int main(int argc, char** argv)
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.27f, "LEYENDO ESCENA");
 
     EditorSceneData sceneData;
     Entity cityEntity;
@@ -2679,17 +2998,20 @@ int main(int argc, char** argv)
     cityEntity.pickRadius = targetSceneRadius;
     sceneData.entities.push_back(cityEntity);
 
-    for (std::size_t i = 0; i < defaultLampLightPositions.size(); ++i)
+    if (useDefaultStreetLampLights)
     {
-        Light light;
-        light.id = "lamp_" + std::to_string(i);
-        light.name = "Lamp " + std::to_string(i + 1);
-        light.position = defaultLampLightPositions[i];
-        light.color = defaultLampLightColor;
-        light.radius = defaultLampLightRadius;
-        light.intensity = defaultLampLightIntensity;
-        light.helperSize = 7.5f;
-        sceneData.lights.push_back(light);
+        for (std::size_t i = 0; i < defaultLampLightPositions.size(); ++i)
+        {
+            Light light;
+            light.id = "lamp_" + std::to_string(i);
+            light.name = "Lamp " + std::to_string(i + 1);
+            light.position = defaultLampLightPositions[i];
+            light.color = defaultLampLightColor;
+            light.radius = defaultLampLightRadius;
+            light.intensity = defaultLampLightIntensity;
+            light.helperSize = 7.5f;
+            sceneData.lights.push_back(light);
+        }
     }
 
     SceneSerializer preloadSerializer;
@@ -2698,11 +3020,21 @@ int main(int argc, char** argv)
     const std::string activeModelPath = (!sceneData.entities.empty() && !sceneData.entities.front().assetPath.empty())
         ? sceneData.entities.front().assetPath
         : std::string("modelos/city2.glb");
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.36f, "CARGANDO MAPA DE LA CIUDAD");
     Model model(activeModelPath.c_str());
-    Model carModel("modelos/Coches/Car_1/scene.gltf");
-    const glm::vec3 carLocalAnchorOffset = ComputeCarLocalAnchorOffset(carModel);
-    const float carVisualScale = ComputeCarVisualScale(carModel);
-    const ProceduralCarWheelLayout carWheelLayout = ComputeCarWheelLayout(carModel);
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.74f, "PREPARANDO VEHICULO");
+    std::unique_ptr<Model> carModel;
+    glm::vec3 carLocalAnchorOffset(0.0f);
+    float carVisualScale = 1.0f;
+    ProceduralCarWheelLayout carWheelLayout = DefaultFastCarWheelLayout();
+    if (!useFastProceduralCar)
+    {
+        carModel = std::make_unique<Model>("modelos/Coches/Car_1/scene.gltf");
+        carLocalAnchorOffset = ComputeCarLocalAnchorOffset(*carModel);
+        carVisualScale = ComputeCarVisualScale(*carModel);
+        carWheelLayout = ComputeCarWheelLayout(*carModel);
+    }
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.84f, "CARGANDO CIELO Y NUBES");
     Skybox skybox(
         GetSkyboxFacePaths(EnvironmentMode::Day),
         GetSkyboxFacePaths(EnvironmentMode::Night),
@@ -2718,6 +3050,7 @@ int main(int argc, char** argv)
     skybox.SetProceduralCloudsEnabled(useFastRenderMode || !volumetricCloudsReady);
     if (volumetricClouds && !volumetricClouds->GetStatusMessage().empty())
         std::cout << volumetricClouds->GetStatusMessage() << std::endl;
+    PresentLoadingFrame(window, overlayShader, overlayVAO, overlayVBO, 0.91f, "AJUSTANDO COLISIONES");
 
     glm::vec3 modelCenter = model.GetCenter();
     float modelRadius = model.GetRadius();
@@ -2765,6 +3098,32 @@ int main(int argc, char** argv)
     CollisionSystem collisionSystem;
     DrivableCarState car;
     GroundSnapCache playerGroundSnapCache;
+    auto drawCarVisuals = [&](Camera& targetCamera)
+    {
+        if (!car.spawned)
+            return;
+
+        if (carModel)
+        {
+            DrawDrivableCar(shaderProgram, targetCamera, *carModel, car, carLocalAnchorOffset, carVisualScale);
+        }
+        else
+        {
+            DrawFastProceduralCarBody(lightShader, targetCamera, lightCubeVAO, car, carLocalAnchorOffset, carVisualScale, skySunDirection);
+        }
+
+        DrawProceduralCarWheels(
+            lightShader,
+            targetCamera,
+            carWheelVAO,
+            carWheelIndexCount,
+            lightCubeVAO,
+            car,
+            carWheelLayout,
+            carLocalAnchorOffset,
+            carVisualScale,
+            skySunDirection);
+    };
 
     Editor editor;
     EditorConfig editorConfig;
@@ -2807,8 +3166,7 @@ int main(int argc, char** argv)
         {
             model.Draw(shaderProgram, previewCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
-        DrawProceduralCarWheels(lightShader, previewCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
+        drawCarVisuals(previewCamera);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, previewCamera, lightCubeVAO, skySunDirection);
     };
@@ -2853,8 +3211,7 @@ int main(int argc, char** argv)
         {
             model.Draw(shaderProgram, previewCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, previewCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
-        DrawProceduralCarWheels(lightShader, previewCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
+        drawCarVisuals(previewCamera);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, previewCamera, lightCubeVAO, skySunDirection);
     };
@@ -2921,7 +3278,7 @@ int main(int argc, char** argv)
             {
                 appScreen = AppScreen::Loading;
                 loadingDestination = LoadingDestination::World;
-                loadingScreenUntil = currentFrame + 0.85f;
+                loadingScreenUntil = currentFrame + inGameLoadingOverlaySeconds;
                 mainMenu.mouseWasDown = true;
             }
             else if (action == MainMenuAction::Quit)
@@ -2962,7 +3319,14 @@ int main(int argc, char** argv)
 
             glClearColor(0.015f, 0.018f, 0.026f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            DrawLoadingScreenOverlay(overlayShader, overlayVAO, overlayVBO);
+            const float loadingDuration = std::max(inGameLoadingOverlaySeconds, 0.001f);
+            const float loadingProgress = 1.0f - glm::clamp((loadingScreenUntil - currentFrame) / loadingDuration, 0.0f, 1.0f);
+            DrawLoadingScreenOverlay(
+                overlayShader,
+                overlayVAO,
+                overlayVBO,
+                loadingProgress,
+                loadingDestination == LoadingDestination::World ? "ENTRANDO AL MUNDO" : "VOLVIENDO AL MENU");
             glfwSwapBuffers(window);
             glfwPollEvents();
             continue;
@@ -2998,7 +3362,7 @@ int main(int argc, char** argv)
             ImGui::Render();
             appScreen = AppScreen::Loading;
             loadingDestination = LoadingDestination::MainMenu;
-            loadingScreenUntil = currentFrame + 0.85f;
+            loadingScreenUntil = currentFrame + inGameLoadingOverlaySeconds;
             environmentMenu.open = false;
             skyPanel.open = false;
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -3223,35 +3587,62 @@ int main(int argc, char** argv)
                 camera.Inputs(window, deltaTime);
 
             UpdateDrivableCar(window, camera, car, model, sceneModelTransform, interaction, gamepad, currentFrame, deltaTime);
+            if (car.exitedThisFrame)
+                playerGroundSnapCache.valid = false;
         }
         else if (!environmentMenu.open && !skyPanel.open && !editor.IsActive() && collisionEditor.IsActive())
         {
             HandleCollisionEditorCameraControls(window, camera, deltaTime);
         }
 
-        if (!camera.flyMode && !car.driving)
+        if (!camera.flyMode && !car.driving && !car.exitedThisFrame)
         {
             glm::vec3 snapped;
+            const glm::vec3 desiredWalkPosition = camera.Position;
+            const auto acceptsWalkSnap = [&](const glm::vec3& candidate)
+            {
+                return candidate.y >= prevPos.y - walkMaxSnapDropPerFrame;
+            };
+            const auto keepHorizontalMoveAtPreviousHeight = [&]()
+            {
+                if (DistanceSquaredXZ(desiredWalkPosition, prevPos) <= walkHorizontalSnapGraceDistance * walkHorizontalSnapGraceDistance)
+                {
+                    camera.Position = glm::vec3(desiredWalkPosition.x, prevPos.y, desiredWalkPosition.z);
+                }
+                else
+                {
+                    camera.Position = prevPos;
+                }
+            };
+
             if (TrySnapToWalkableSurfaceCached(
                 model,
-                camera.Position,
+                desiredWalkPosition,
                 sceneModelTransform,
                 walkProbeRadius, walkEyeHeight,
                 walkMaxStepUp, walkMaxDropDown, walkMaxSlopeDegrees,
                 playerGroundSnapCache,
                 currentFrame,
-                3.0f,
-                0.12f,
-                snapped))
+                1.5f,
+                0.06f,
+                snapped) &&
+                acceptsWalkSnap(snapped))
+            {
                 camera.Position = snapped;
+            }
             else if (model.TrySnapToWalkableSurface(
                 prevPos, sceneModelTransform,
                 walkProbeRadius, walkEyeHeight,
                 walkMaxStepUp, walkMaxDropDown, walkMaxSlopeDegrees,
-                snapped))
+                snapped) &&
+                acceptsWalkSnap(snapped))
+            {
                 camera.Position = snapped;
+            }
             else
-                camera.Position = prevPos;
+            {
+                keepHorizontalMoveAtPreviousHeight();
+            }
 
             const bool blocked =
                 camera.Position.x >= blockedZoneMin.x && camera.Position.x <= blockedZoneMax.x &&
@@ -3260,7 +3651,7 @@ int main(int argc, char** argv)
             if (blocked) camera.Position = prevPos;
         }
 
-        if (!car.driving)
+        if (!car.driving && !car.exitedThisFrame)
         {
             camera.Position = collisionSystem.ResolveCameraPosition(
                 colliderManager.GetColliders(),
@@ -3308,8 +3699,7 @@ int main(int argc, char** argv)
         {
             model.Draw(shaderProgram, renderCamera, BuildSceneModelTransform(entity, baseModelTransform));
         }
-        DrawDrivableCar(shaderProgram, renderCamera, carModel, car, carLocalAnchorOffset, carVisualScale);
-        DrawProceduralCarWheels(lightShader, renderCamera, carWheelVAO, carWheelIndexCount, lightCubeVAO, car, carWheelLayout, carLocalAnchorOffset, carVisualScale, skySunDirection);
+        drawCarVisuals(renderCamera);
 
         DrawInteriorLightCubes(sceneData.lights, lightShader, renderCamera, lightCubeVAO, skySunDirection);
 

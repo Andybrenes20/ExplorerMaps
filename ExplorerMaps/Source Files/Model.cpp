@@ -5,7 +5,12 @@
 #include<cctype>
 #include<cmath>
 #include<cstring>
+#include<cstdint>
+#include<filesystem>
+#include<fstream>
+#include<iostream>
 #include<stdexcept>
+#include<utility>
 
 #include<assimp/Importer.hpp>
 #include<assimp/material.h>
@@ -25,6 +30,9 @@ namespace
 	constexpr float kCityMaxRenderDistance = 1450.0f;
 	constexpr float kPeripheralLodStart = 0.54f;
 	constexpr float kPeripheralLodEnd = 1.0f;
+	constexpr std::uint32_t kModelCacheVersion = 4;
+	constexpr char kModelCacheMagic[8] = { 'E', 'X', 'M', 'C', 'A', 'C', 'H', 'E' };
+	namespace fs = std::filesystem;
 
 	std::string toLowerCopy(std::string value)
 	{
@@ -138,6 +146,151 @@ namespace
 		return Texture(pixels, 1, 1, texType, slot, GL_RGBA);
 	}
 
+	const char* textureTypeLiteral(const std::string& type)
+	{
+		return type == "specular" ? "specular" : "diffuse";
+	}
+
+	template<typename T>
+	void writeBinary(std::ostream& out, const T& value)
+	{
+		out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+	}
+
+	template<typename T>
+	bool readBinary(std::istream& in, T& value)
+	{
+		in.read(reinterpret_cast<char*>(&value), sizeof(T));
+		return static_cast<bool>(in);
+	}
+
+	void writeString(std::ostream& out, const std::string& value)
+	{
+		const std::uint32_t size = static_cast<std::uint32_t>(value.size());
+		writeBinary(out, size);
+		if (size > 0)
+		{
+			out.write(value.data(), size);
+		}
+	}
+
+	bool readString(std::istream& in, std::string& value)
+	{
+		std::uint32_t size = 0;
+		if (!readBinary(in, size) || size > 1'000'000)
+		{
+			return false;
+		}
+
+		value.assign(size, '\0');
+		if (size > 0)
+		{
+			in.read(value.data(), size);
+		}
+		return static_cast<bool>(in);
+	}
+
+	std::string modelCachePath(const char* path)
+	{
+		return std::string(path) + ".excache";
+	}
+
+	bool getSourceMetadata(const char* path, std::uint64_t& size, std::int64_t& writeStamp)
+	{
+		try
+		{
+			const fs::path sourcePath(path);
+			if (!fs::exists(sourcePath))
+			{
+				return false;
+			}
+
+			size = static_cast<std::uint64_t>(fs::file_size(sourcePath));
+			writeStamp = static_cast<std::int64_t>(fs::last_write_time(sourcePath).time_since_epoch().count());
+			return true;
+		}
+		catch (...)
+		{
+			return false;
+		}
+	}
+
+	Model::TextureCacheInfo makeSolidTextureInfo(const glm::vec3& color, const char* type)
+	{
+		Model::TextureCacheInfo info;
+		info.kind = Model::TextureCacheInfo::Kind::Solid;
+		info.type = type;
+		info.solidColor = color;
+		return info;
+	}
+
+	Texture makeTextureFromCacheInfo(const Model::TextureCacheInfo& info, GLuint slot)
+	{
+		const char* type = textureTypeLiteral(info.type);
+		switch (info.kind)
+		{
+		case Model::TextureCacheInfo::Kind::File:
+			if (!info.path.empty())
+			{
+				return Texture(info.path.c_str(), type, slot);
+			}
+			break;
+		case Model::TextureCacheInfo::Kind::EmbeddedCompressed:
+			if (!info.bytes.empty())
+			{
+				return Texture(info.bytes.data(), static_cast<int>(info.bytes.size()), type, slot);
+			}
+			break;
+		case Model::TextureCacheInfo::Kind::EmbeddedRgba:
+			if (!info.bytes.empty() && info.width > 0 && info.height > 0)
+			{
+				return Texture(info.bytes.data(), info.width, info.height, type, slot, GL_RGBA);
+			}
+			break;
+		case Model::TextureCacheInfo::Kind::Solid:
+			break;
+		}
+
+		return buildSolidTexture(info.solidColor, type, slot);
+	}
+
+	Model::TextureCacheInfo makeEmbeddedTextureInfo(const aiTexture* embeddedTexture, const char* type)
+	{
+		Model::TextureCacheInfo info;
+		info.type = type;
+		if (embeddedTexture == nullptr)
+		{
+			info.kind = Model::TextureCacheInfo::Kind::Solid;
+			info.solidColor = glm::vec3(0.31f);
+			return info;
+		}
+
+		if (embeddedTexture->mHeight == 0)
+		{
+			info.kind = Model::TextureCacheInfo::Kind::EmbeddedCompressed;
+			const auto* bytes = reinterpret_cast<const unsigned char*>(embeddedTexture->pcData);
+			info.bytes.assign(bytes, bytes + embeddedTexture->mWidth);
+			return info;
+		}
+
+		info.kind = Model::TextureCacheInfo::Kind::EmbeddedRgba;
+		info.width = static_cast<int>(embeddedTexture->mWidth);
+		info.height = static_cast<int>(embeddedTexture->mHeight);
+		info.bytes.reserve(static_cast<std::size_t>(info.width) * info.height * 4);
+		for (unsigned int y = 0; y < embeddedTexture->mHeight; ++y)
+		{
+			for (unsigned int x = 0; x < embeddedTexture->mWidth; ++x)
+			{
+				const aiTexel& texel = embeddedTexture->pcData[y * embeddedTexture->mWidth + x];
+				info.bytes.push_back(texel.r);
+				info.bytes.push_back(texel.g);
+				info.bytes.push_back(texel.b);
+				info.bytes.push_back(texel.a);
+			}
+		}
+		return info;
+	}
+
 	glm::vec3 closestPointOnTriangle(const glm::vec3& point, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
 	{
 		const glm::vec3 ab = b - a;
@@ -193,6 +346,43 @@ namespace
 		const float v = vb * denom;
 		const float w = vc * denom;
 		return a + ab * v + ac * w;
+	}
+
+	bool verticalPointOnTriangleXZ(
+		const glm::vec3& point,
+		const glm::vec3& a,
+		const glm::vec3& b,
+		const glm::vec3& c,
+		float& outY,
+		float& outEdgeDistanceSquared)
+	{
+		const glm::vec2 p(point.x, point.z);
+		const glm::vec2 a2(a.x, a.z);
+		const glm::vec2 b2(b.x, b.z);
+		const glm::vec2 c2(c.x, c.z);
+		const glm::vec2 v0 = b2 - a2;
+		const glm::vec2 v1 = c2 - a2;
+		const glm::vec2 v2 = p - a2;
+		const float denom = v0.x * v1.y - v1.x * v0.y;
+		if (std::abs(denom) <= 0.000001f)
+		{
+			return false;
+		}
+
+		const float invDenom = 1.0f / denom;
+		const float u = (v2.x * v1.y - v1.x * v2.y) * invDenom;
+		const float v = (v0.x * v2.y - v2.x * v0.y) * invDenom;
+		const float w = 1.0f - u - v;
+		const float edgeTolerance = -0.045f;
+		if (u < edgeTolerance || v < edgeTolerance || w < edgeTolerance)
+		{
+			return false;
+		}
+
+		outY = a.y + (b.y - a.y) * u + (c.y - a.y) * v;
+		const float minBarycentric = std::min(u, std::min(v, w));
+		outEdgeDistanceSquared = minBarycentric * minBarycentric;
+		return true;
 	}
 
 	float distanceSquaredXZ(const glm::vec3& point, const glm::vec3& candidate)
@@ -369,10 +559,6 @@ Model::Model(const char* file)
 
 	if (hasExtension(path, ".glb") || hasExtension(path, ".gltf"))
 	{
-		if (!lightweightVehicleAsset)
-		{
-			loadAssimpCollision(file);
-		}
 		loadAssimpModel(file);
 		return;
 	}
@@ -551,19 +737,19 @@ bool Model::TrySnapToWalkableSurface(
 	const float localMaxDropDown = maxDropDown / averageScale;
 	const glm::vec3 localFeetPosition = localPosition - glm::vec3(0.0f, localEyeHeight, 0.0f);
 	const float minNormalY = std::cos(glm::radians(maxSlopeDegrees));
-	const float maxHorizontalDistance = std::max(localProbeRadius * 3.0f, 0.25f);
-	const float maxHorizontalDistanceSquared = maxHorizontalDistance * maxHorizontalDistance;
+	const float searchPadding = std::max(localProbeRadius * 0.35f, 0.04f);
 
 	bool foundSurface = false;
 	float bestFootY = -FLT_MAX;
-	float bestHorizontalDistanceSquared = FLT_MAX;
+	float bestAbsHeightDelta = FLT_MAX;
+	float bestEdgeDistanceSquared = -FLT_MAX;
 
 	auto evaluateCollisionMesh = [&](const CollisionMesh& collisionMesh, int collisionMeshIndex)
 	{
-		if (localFeetPosition.x < collisionMesh.boundsMin.x - maxHorizontalDistance ||
-			localFeetPosition.x > collisionMesh.boundsMax.x + maxHorizontalDistance ||
-			localFeetPosition.z < collisionMesh.boundsMin.z - maxHorizontalDistance ||
-			localFeetPosition.z > collisionMesh.boundsMax.z + maxHorizontalDistance)
+		if (localFeetPosition.x < collisionMesh.boundsMin.x - searchPadding ||
+			localFeetPosition.x > collisionMesh.boundsMax.x + searchPadding ||
+			localFeetPosition.z < collisionMesh.boundsMin.z - searchPadding ||
+			localFeetPosition.z > collisionMesh.boundsMax.z + searchPadding)
 		{
 			return;
 		}
@@ -583,10 +769,10 @@ bool Model::TrySnapToWalkableSurface(
 			const float triangleMaxX = std::max(a.x, std::max(b.x, c.x));
 			const float triangleMinZ = std::min(a.z, std::min(b.z, c.z));
 			const float triangleMaxZ = std::max(a.z, std::max(b.z, c.z));
-			if (localFeetPosition.x < triangleMinX - maxHorizontalDistance ||
-				localFeetPosition.x > triangleMaxX + maxHorizontalDistance ||
-				localFeetPosition.z < triangleMinZ - maxHorizontalDistance ||
-				localFeetPosition.z > triangleMaxZ + maxHorizontalDistance)
+			if (localFeetPosition.x < triangleMinX - searchPadding ||
+				localFeetPosition.x > triangleMaxX + searchPadding ||
+				localFeetPosition.z < triangleMinZ - searchPadding ||
+				localFeetPosition.z > triangleMaxZ + searchPadding)
 			{
 				continue;
 			}
@@ -604,31 +790,34 @@ bool Model::TrySnapToWalkableSurface(
 				continue;
 			}
 
-			const glm::vec3 closestPoint = closestPointOnTriangle(localFeetPosition, a, b, c);
-			const float horizontalDistanceSquared = distanceSquaredXZ(localFeetPosition, closestPoint);
-			if (horizontalDistanceSquared > maxHorizontalDistanceSquared)
+			float surfaceY = 0.0f;
+			float edgeDistanceSquared = 0.0f;
+			if (!verticalPointOnTriangleXZ(localFeetPosition, a, b, c, surfaceY, edgeDistanceSquared))
 			{
 				continue;
 			}
 
-			const float heightDelta = closestPoint.y - localFeetPosition.y;
+			const float heightDelta = surfaceY - localFeetPosition.y;
 			if (heightDelta > localMaxStepUp || heightDelta < -localMaxDropDown)
 			{
 				continue;
 			}
 
+			const float absHeightDelta = std::abs(heightDelta);
 			const bool isBetterSurface =
 				!foundSurface ||
-				horizontalDistanceSquared < bestHorizontalDistanceSquared - 0.0001f ||
-				(std::abs(horizontalDistanceSquared - bestHorizontalDistanceSquared) <= 0.0001f && closestPoint.y > bestFootY);
+				absHeightDelta < bestAbsHeightDelta - 0.0001f ||
+				(std::abs(absHeightDelta - bestAbsHeightDelta) <= 0.0001f &&
+					edgeDistanceSquared > bestEdgeDistanceSquared + 0.0001f);
 			if (!isBetterSurface)
 			{
 				continue;
 			}
 
 			foundSurface = true;
-			bestFootY = closestPoint.y;
-			bestHorizontalDistanceSquared = horizontalDistanceSquared;
+			bestFootY = surfaceY;
+			bestAbsHeightDelta = absHeightDelta;
+			bestEdgeDistanceSquared = edgeDistanceSquared;
 			lastWalkableCollisionMeshIndex = collisionMeshIndex;
 		}
 	};
@@ -637,7 +826,7 @@ bool Model::TrySnapToWalkableSurface(
 		lastWalkableCollisionMeshIndex < static_cast<int>(collisionMeshes.size()))
 	{
 		evaluateCollisionMesh(collisionMeshes[static_cast<std::size_t>(lastWalkableCollisionMeshIndex)], lastWalkableCollisionMeshIndex);
-		if (foundSurface && bestHorizontalDistanceSquared <= localProbeRadius * localProbeRadius)
+		if (foundSurface && bestAbsHeightDelta <= std::max(localMaxStepUp, localMaxDropDown) * 0.65f)
 		{
 			glm::vec3 localSnappedPosition = localPosition;
 			localSnappedPosition.y = bestFootY + localEyeHeight;
@@ -876,7 +1065,7 @@ void Model::loadMesh(unsigned int indMesh)
 	meshBoundsRadii.push_back(meshRadius);
 
 	// Combine the vertices, indices, and textures into a mesh
-	meshes.push_back(Mesh(vertices, indices, textures));
+	meshes.emplace_back(std::move(vertices), std::move(indices), std::move(textures));
 }
 
 void Model::traverseNode(unsigned int nextNode, glm::mat4 matrix)
@@ -1116,24 +1305,321 @@ void Model::updateBounds(const glm::vec3& worldPosition)
 	hasBounds = true;
 }
 
+bool Model::tryLoadAssimpCache(const char* path)
+{
+	std::uint64_t sourceSize = 0;
+	std::int64_t sourceWriteStamp = 0;
+	if (!getSourceMetadata(path, sourceSize, sourceWriteStamp))
+	{
+		return false;
+	}
+
+	std::ifstream input(modelCachePath(path), std::ios::binary);
+	if (!input)
+	{
+		return false;
+	}
+
+	auto clearLoadedState = [&]()
+	{
+		meshes.clear();
+		translationsMeshes.clear();
+		rotationsMeshes.clear();
+		scalesMeshes.clear();
+		matricesMeshes.clear();
+		meshBoundsCenters.clear();
+		meshBoundsRadii.clear();
+		collisionMeshes.clear();
+		assimpBatches.clear();
+		assimpBatchLookup.clear();
+		loadedTexName.clear();
+		loadedTex.clear();
+		loadedTexInfo.clear();
+		boundsMin = glm::vec3(FLT_MAX);
+		boundsMax = glm::vec3(-FLT_MAX);
+		hasBounds = false;
+	};
+
+	char magic[8] = {};
+	input.read(magic, sizeof(magic));
+	std::uint32_t version = 0;
+	std::uint64_t cachedSourceSize = 0;
+	std::int64_t cachedWriteStamp = 0;
+	if (!input ||
+		std::memcmp(magic, kModelCacheMagic, sizeof(magic)) != 0 ||
+		!readBinary(input, version) ||
+		version != kModelCacheVersion ||
+		!readBinary(input, cachedSourceSize) ||
+		!readBinary(input, cachedWriteStamp) ||
+		cachedSourceSize != sourceSize ||
+		cachedWriteStamp != sourceWriteStamp)
+	{
+		clearLoadedState();
+		return false;
+	}
+
+	if (!readBinary(input, hasBounds) ||
+		!readBinary(input, boundsMin) ||
+		!readBinary(input, boundsMax))
+	{
+		clearLoadedState();
+		return false;
+	}
+
+	std::uint32_t batchCount = 0;
+	if (!readBinary(input, batchCount) || batchCount > 100000)
+	{
+		clearLoadedState();
+		return false;
+	}
+
+	assimpBatches.clear();
+	assimpBatches.reserve(batchCount);
+	for (std::uint32_t batchIndex = 0; batchIndex < batchCount; ++batchIndex)
+	{
+		AssimpMeshBatch batch;
+		std::uint32_t vertexCount = 0;
+		std::uint32_t indexCount = 0;
+		std::uint32_t textureCount = 0;
+		if (!readBinary(input, batch.boundsMin) ||
+			!readBinary(input, batch.boundsMax) ||
+			!readBinary(input, vertexCount) ||
+			!readBinary(input, indexCount) ||
+			!readBinary(input, textureCount) ||
+			vertexCount > 10'000'000 ||
+			indexCount > 30'000'000 ||
+			textureCount > 128)
+		{
+			clearLoadedState();
+			return false;
+		}
+
+		batch.vertices.resize(vertexCount);
+		batch.indices.resize(indexCount);
+		if (vertexCount > 0)
+		{
+			input.read(reinterpret_cast<char*>(batch.vertices.data()), static_cast<std::streamsize>(batch.vertices.size() * sizeof(Vertex)));
+		}
+		if (indexCount > 0)
+		{
+			input.read(reinterpret_cast<char*>(batch.indices.data()), static_cast<std::streamsize>(batch.indices.size() * sizeof(GLuint)));
+		}
+		if (!input)
+		{
+			clearLoadedState();
+			return false;
+		}
+
+		batch.textureInfos.reserve(textureCount);
+		batch.textures.reserve(textureCount);
+		for (std::uint32_t textureIndex = 0; textureIndex < textureCount; ++textureIndex)
+		{
+			TextureCacheInfo info;
+			std::uint32_t kind = 0;
+			std::uint32_t byteCount = 0;
+			if (!readBinary(input, kind) ||
+				!readString(input, info.type) ||
+				!readString(input, info.path) ||
+				!readBinary(input, info.solidColor) ||
+				!readBinary(input, info.width) ||
+				!readBinary(input, info.height) ||
+				!readBinary(input, byteCount) ||
+				byteCount > 128'000'000)
+			{
+				clearLoadedState();
+				return false;
+			}
+
+			info.kind = static_cast<TextureCacheInfo::Kind>(kind);
+			info.bytes.resize(byteCount);
+			if (byteCount > 0)
+			{
+				input.read(reinterpret_cast<char*>(info.bytes.data()), byteCount);
+			}
+			if (!input)
+			{
+				clearLoadedState();
+				return false;
+			}
+
+			batch.textureInfos.push_back(info);
+			batch.textures.push_back(makeTextureFromCacheInfo(info, static_cast<GLuint>(loadedTex.size())));
+			loadedTex.push_back(batch.textures.back());
+			loadedTexName.push_back("cache_texture_" + std::to_string(batchIndex) + "_" + std::to_string(textureIndex));
+			loadedTexInfo.push_back(info);
+		}
+
+		if (batch.textures.empty())
+		{
+			TextureCacheInfo whiteDiffuse = makeSolidTextureInfo(glm::vec3(1.0f), "diffuse");
+			batch.textureInfos.push_back(whiteDiffuse);
+			batch.textures.push_back(makeTextureFromCacheInfo(whiteDiffuse, static_cast<GLuint>(loadedTex.size())));
+			loadedTex.push_back(batch.textures.back());
+			loadedTexName.push_back("cache_generated_diffuse_" + std::to_string(batchIndex));
+			loadedTexInfo.push_back(whiteDiffuse);
+		}
+
+		assimpBatches.push_back(std::move(batch));
+	}
+
+	std::uint32_t collisionMeshCount = 0;
+	if (!readBinary(input, collisionMeshCount) || collisionMeshCount > 500000)
+	{
+		clearLoadedState();
+		return false;
+	}
+
+	collisionMeshes.clear();
+	collisionMeshes.reserve(collisionMeshCount);
+	for (std::uint32_t meshIndex = 0; meshIndex < collisionMeshCount; ++meshIndex)
+	{
+		CollisionMesh collisionMesh;
+		std::uint32_t vertexCount = 0;
+		std::uint32_t indexCount = 0;
+		if (!readBinary(input, collisionMesh.boundsMin) ||
+			!readBinary(input, collisionMesh.boundsMax) ||
+			!readBinary(input, vertexCount) ||
+			!readBinary(input, indexCount) ||
+			vertexCount > 10'000'000 ||
+			indexCount > 30'000'000)
+		{
+			clearLoadedState();
+			return false;
+		}
+
+		collisionMesh.vertices.resize(vertexCount);
+		collisionMesh.indices.resize(indexCount);
+		if (vertexCount > 0)
+		{
+			input.read(reinterpret_cast<char*>(collisionMesh.vertices.data()), static_cast<std::streamsize>(collisionMesh.vertices.size() * sizeof(glm::vec3)));
+		}
+		if (indexCount > 0)
+		{
+			input.read(reinterpret_cast<char*>(collisionMesh.indices.data()), static_cast<std::streamsize>(collisionMesh.indices.size() * sizeof(GLuint)));
+		}
+		if (!input)
+		{
+			clearLoadedState();
+			return false;
+		}
+
+		collisionMeshes.push_back(std::move(collisionMesh));
+	}
+
+	finalizeAssimpBatches();
+	return !meshes.empty();
+}
+
+void Model::saveAssimpCache(const char* path) const
+{
+	std::uint64_t sourceSize = 0;
+	std::int64_t sourceWriteStamp = 0;
+	if (!getSourceMetadata(path, sourceSize, sourceWriteStamp) || assimpBatches.empty())
+	{
+		return;
+	}
+
+	std::ofstream output(modelCachePath(path), std::ios::binary | std::ios::trunc);
+	if (!output)
+	{
+		return;
+	}
+
+	output.write(kModelCacheMagic, sizeof(kModelCacheMagic));
+	writeBinary(output, kModelCacheVersion);
+	writeBinary(output, sourceSize);
+	writeBinary(output, sourceWriteStamp);
+	writeBinary(output, hasBounds);
+	writeBinary(output, boundsMin);
+	writeBinary(output, boundsMax);
+
+	const std::uint32_t batchCount = static_cast<std::uint32_t>(assimpBatches.size());
+	writeBinary(output, batchCount);
+	for (const AssimpMeshBatch& batch : assimpBatches)
+	{
+		const std::uint32_t vertexCount = static_cast<std::uint32_t>(batch.vertices.size());
+		const std::uint32_t indexCount = static_cast<std::uint32_t>(batch.indices.size());
+		const std::uint32_t textureCount = static_cast<std::uint32_t>(batch.textureInfos.size());
+		writeBinary(output, batch.boundsMin);
+		writeBinary(output, batch.boundsMax);
+		writeBinary(output, vertexCount);
+		writeBinary(output, indexCount);
+		writeBinary(output, textureCount);
+		if (vertexCount > 0)
+		{
+			output.write(reinterpret_cast<const char*>(batch.vertices.data()), static_cast<std::streamsize>(batch.vertices.size() * sizeof(Vertex)));
+		}
+		if (indexCount > 0)
+		{
+			output.write(reinterpret_cast<const char*>(batch.indices.data()), static_cast<std::streamsize>(batch.indices.size() * sizeof(GLuint)));
+		}
+
+		for (const TextureCacheInfo& info : batch.textureInfos)
+		{
+			const std::uint32_t kind = static_cast<std::uint32_t>(info.kind);
+			const std::uint32_t byteCount = static_cast<std::uint32_t>(info.bytes.size());
+			writeBinary(output, kind);
+			writeString(output, info.type);
+			writeString(output, info.path);
+			writeBinary(output, info.solidColor);
+			writeBinary(output, info.width);
+			writeBinary(output, info.height);
+			writeBinary(output, byteCount);
+			if (byteCount > 0)
+			{
+				output.write(reinterpret_cast<const char*>(info.bytes.data()), byteCount);
+			}
+		}
+	}
+
+	const std::uint32_t collisionMeshCount = static_cast<std::uint32_t>(collisionMeshes.size());
+	writeBinary(output, collisionMeshCount);
+	for (const CollisionMesh& collisionMesh : collisionMeshes)
+	{
+		const std::uint32_t vertexCount = static_cast<std::uint32_t>(collisionMesh.vertices.size());
+		const std::uint32_t indexCount = static_cast<std::uint32_t>(collisionMesh.indices.size());
+		writeBinary(output, collisionMesh.boundsMin);
+		writeBinary(output, collisionMesh.boundsMax);
+		writeBinary(output, vertexCount);
+		writeBinary(output, indexCount);
+		if (vertexCount > 0)
+		{
+			output.write(reinterpret_cast<const char*>(collisionMesh.vertices.data()), static_cast<std::streamsize>(collisionMesh.vertices.size() * sizeof(glm::vec3)));
+		}
+		if (indexCount > 0)
+		{
+			output.write(reinterpret_cast<const char*>(collisionMesh.indices.data()), static_cast<std::streamsize>(collisionMesh.indices.size() * sizeof(GLuint)));
+		}
+	}
+}
+
 void Model::loadAssimpModel(const char* path)
 {
+	if (!lightweightVehicleAsset && tryLoadAssimpCache(path))
+	{
+		std::cout << "Modelo cargado desde cache: " << modelCachePath(path) << std::endl;
+		return;
+	}
+
 	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(
-		path,
+	const unsigned int importFlags =
 		aiProcess_Triangulate |
-		aiProcess_GenSmoothNormals |
 		aiProcess_FlipUVs |
 		aiProcess_JoinIdenticalVertices |
-		aiProcess_PreTransformVertices |
-		aiProcess_OptimizeMeshes |
-		aiProcess_RemoveRedundantMaterials |
-		aiProcess_ImproveCacheLocality
+		aiProcess_PreTransformVertices;
+	const aiScene* scene = importer.ReadFile(
+		path,
+		importFlags
 	);
 
 	if (scene == nullptr || scene->mRootNode == nullptr)
 	{
 		throw std::runtime_error(std::string("No se pudo cargar el modelo con Assimp: ") + importer.GetErrorString());
+	}
+
+	if (!lightweightVehicleAsset)
+	{
+		processAssimpCollisionScene(scene);
 	}
 
 	processAssimpNode(
@@ -1142,6 +1628,10 @@ void Model::loadAssimpModel(const char* path)
 		glm::mat4(1.0f),
 		getDirectoryFromPath(path)
 	);
+	if (!lightweightVehicleAsset)
+	{
+		saveAssimpCache(path);
+	}
 	finalizeAssimpBatches();
 }
 
@@ -1155,6 +1645,16 @@ void Model::loadAssimpCollision(const char* path)
 		aiProcess_PreTransformVertices
 	);
 
+	if (scene == nullptr)
+	{
+		return;
+	}
+
+	processAssimpCollisionScene(scene);
+}
+
+void Model::processAssimpCollisionScene(const aiScene* scene)
+{
 	if (scene == nullptr)
 	{
 		return;
@@ -1188,18 +1688,31 @@ void Model::loadAssimpCollision(const char* path)
 				continue;
 			}
 
+			const glm::vec3& a = collisionMesh.vertices[face.mIndices[0]];
+			const glm::vec3& b = collisionMesh.vertices[face.mIndices[1]];
+			const glm::vec3& c = collisionMesh.vertices[face.mIndices[2]];
+			const glm::vec3 faceCross = glm::cross(b - a, c - a);
+			if (glm::dot(faceCross, faceCross) <= 0.0000001f)
+			{
+				continue;
+			}
+			const glm::vec3 faceNormal = glm::normalize(faceCross);
+			if (std::abs(faceNormal.y) < 0.28f)
+			{
+				continue;
+			}
+
 			collisionMesh.indices.push_back(face.mIndices[0]);
 			collisionMesh.indices.push_back(face.mIndices[1]);
 			collisionMesh.indices.push_back(face.mIndices[2]);
 		}
 
 		const glm::vec3 extents = collisionMesh.boundsMax - collisionMesh.boundsMin;
-		if (extents.x < 0.01f || extents.y < 0.01f || extents.z < 0.01f)
-		{
-			continue;
-		}
-
-		if (collisionMesh.indices.empty())
+		const int significantAxes =
+			(extents.x >= 0.01f ? 1 : 0) +
+			(extents.y >= 0.01f ? 1 : 0) +
+			(extents.z >= 0.01f ? 1 : 0);
+		if (significantAxes < 2)
 		{
 			continue;
 		}
@@ -1228,6 +1741,7 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 	std::vector<Vertex> vertices;
 	std::vector<GLuint> indices;
 	std::vector<Texture> textures;
+	std::vector<TextureCacheInfo> textureInfos;
 	glm::vec3 materialBaseColor(1.0f, 1.0f, 1.0f);
 	bool hasMaterialBaseColor = false;
 	glm::vec3 materialEmissiveColor(0.0f, 0.0f, 0.0f);
@@ -1287,6 +1801,10 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 					if (loadedTexName[loadedIndex] == textureKey)
 					{
 						textures.push_back(loadedTex[loadedIndex]);
+						if (loadedIndex < loadedTexInfo.size())
+						{
+							textureInfos.push_back(loadedTexInfo[loadedIndex]);
+						}
 						alreadyLoaded = true;
 						break;
 					}
@@ -1297,20 +1815,25 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 					continue;
 				}
 
-				Texture texture = [&]() -> Texture
+				TextureCacheInfo cacheInfo;
+				if (!textureKey.empty() && textureKey[0] == '*')
 				{
-					if (!textureKey.empty() && textureKey[0] == '*')
-					{
-						const aiTexture* embeddedTexture = scene->GetEmbeddedTexture(texturePath.C_Str());
-						return buildEmbeddedTexture(embeddedTexture, textureLabel, static_cast<GLuint>(loadedTex.size()));
-					}
+					cacheInfo = makeEmbeddedTextureInfo(scene->GetEmbeddedTexture(texturePath.C_Str()), textureLabel);
+				}
+				else
+				{
+					cacheInfo.kind = TextureCacheInfo::Kind::File;
+					cacheInfo.type = textureLabel;
+					cacheInfo.path = fileDirectory + textureKey;
+				}
 
-					return Texture((fileDirectory + textureKey).c_str(), textureLabel, static_cast<GLuint>(loadedTex.size()));
-				}();
+				Texture texture = makeTextureFromCacheInfo(cacheInfo, static_cast<GLuint>(loadedTex.size()));
 
 				textures.push_back(texture);
+				textureInfos.push_back(cacheInfo);
 				loadedTex.push_back(texture);
 				loadedTexName.push_back(textureKey);
+				loadedTexInfo.push_back(cacheInfo);
 			}
 		};
 
@@ -1391,10 +1914,31 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 
 	if (textures.empty())
 	{
+		const std::string diffuseKey = "generated_diffuse_" + std::to_string(mesh->mMaterialIndex);
 		const glm::vec3 diffuseColor = hasMaterialBaseColor ? materialBaseColor : glm::vec3(1.0f, 1.0f, 1.0f);
-		textures.push_back(buildSolidTexture(diffuseColor, "diffuse", static_cast<GLuint>(loadedTex.size())));
-		loadedTex.push_back(textures.back());
-		loadedTexName.push_back("generated_diffuse_" + std::to_string(mesh->mMaterialIndex));
+		bool alreadyLoaded = false;
+		for (unsigned int loadedIndex = 0; loadedIndex < loadedTexName.size(); ++loadedIndex)
+		{
+			if (loadedTexName[loadedIndex] == diffuseKey)
+			{
+				textures.push_back(loadedTex[loadedIndex]);
+				if (loadedIndex < loadedTexInfo.size())
+				{
+					textureInfos.push_back(loadedTexInfo[loadedIndex]);
+				}
+				alreadyLoaded = true;
+				break;
+			}
+		}
+		if (!alreadyLoaded)
+		{
+			const TextureCacheInfo cacheInfo = makeSolidTextureInfo(diffuseColor, "diffuse");
+			textures.push_back(makeTextureFromCacheInfo(cacheInfo, static_cast<GLuint>(loadedTex.size())));
+			textureInfos.push_back(cacheInfo);
+			loadedTex.push_back(textures.back());
+			loadedTexName.push_back(diffuseKey);
+			loadedTexInfo.push_back(cacheInfo);
+		}
 	}
 
 	bool hasSpecularTexture = false;
@@ -1408,9 +1952,30 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 	}
 	if (!hasSpecularTexture)
 	{
-		textures.push_back(buildSolidTexture(glm::vec3(0.0f, 0.0f, 0.0f), "specular", static_cast<GLuint>(loadedTex.size())));
-		loadedTex.push_back(textures.back());
-		loadedTexName.push_back("generated_specular_" + std::to_string(mesh->mMaterialIndex));
+		const std::string specularKey = "generated_specular_" + std::to_string(mesh->mMaterialIndex);
+		bool alreadyLoaded = false;
+		for (unsigned int loadedIndex = 0; loadedIndex < loadedTexName.size(); ++loadedIndex)
+		{
+			if (loadedTexName[loadedIndex] == specularKey)
+			{
+				textures.push_back(loadedTex[loadedIndex]);
+				if (loadedIndex < loadedTexInfo.size())
+				{
+					textureInfos.push_back(loadedTexInfo[loadedIndex]);
+				}
+				alreadyLoaded = true;
+				break;
+			}
+		}
+		if (!alreadyLoaded)
+		{
+			const TextureCacheInfo cacheInfo = makeSolidTextureInfo(glm::vec3(0.0f, 0.0f, 0.0f), "specular");
+			textures.push_back(makeTextureFromCacheInfo(cacheInfo, static_cast<GLuint>(loadedTex.size())));
+			textureInfos.push_back(cacheInfo);
+			loadedTex.push_back(textures.back());
+			loadedTexName.push_back(specularKey);
+			loadedTexInfo.push_back(cacheInfo);
+		}
 	}
 
 	const unsigned int batchKey = mesh->mMaterialIndex;
@@ -1419,6 +1984,7 @@ void Model::processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat
 	{
 		AssimpMeshBatch batch;
 		batch.textures = textures;
+		batch.textureInfos = textureInfos;
 		assimpBatchLookup.emplace(batchKey, assimpBatches.size());
 		assimpBatches.push_back(std::move(batch));
 	}
@@ -1460,7 +2026,7 @@ void Model::finalizeAssimpBatches()
 		translationsMeshes.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
 		rotationsMeshes.push_back(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 		scalesMeshes.push_back(glm::vec3(1.0f, 1.0f, 1.0f));
-		meshes.push_back(Mesh(batch.vertices, batch.indices, batch.textures));
+		meshes.emplace_back(std::move(batch.vertices), std::move(batch.indices), std::move(batch.textures));
 	}
 
 	assimpBatchLookup.clear();

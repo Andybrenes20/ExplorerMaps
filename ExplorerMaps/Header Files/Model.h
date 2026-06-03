@@ -52,12 +52,32 @@ public:
 		float radius,
 		float eyeHeight) const;
 
+	struct TextureCacheInfo
+	{
+		enum class Kind
+		{
+			Solid = 0,
+			File = 1,
+			EmbeddedCompressed = 2,
+			EmbeddedRgba = 3
+		};
+
+		Kind kind = Kind::Solid;
+		std::string type = "diffuse";
+		std::string path;
+		glm::vec3 solidColor = glm::vec3(1.0f);
+		int width = 1;
+		int height = 1;
+		std::vector<unsigned char> bytes;
+	};
+
 private:
 	struct AssimpMeshBatch
 	{
 		std::vector<Vertex> vertices;
 		std::vector<GLuint> indices;
 		std::vector<Texture> textures;
+		std::vector<TextureCacheInfo> textureInfos;
 		glm::vec3 boundsMin = glm::vec3(FLT_MAX);
 		glm::vec3 boundsMax = glm::vec3(-FLT_MAX);
 	};
@@ -95,11 +115,15 @@ private:
 	// Prevents textures from being loaded twice
 	std::vector<std::string> loadedTexName;
 	std::vector<Texture> loadedTex;
+	std::vector<TextureCacheInfo> loadedTexInfo;
 
 	// Loads a single mesh by its index
 	void loadMesh(unsigned int indMesh);
 	void loadAssimpModel(const char* path);
 	void loadAssimpCollision(const char* path);
+	bool tryLoadAssimpCache(const char* path);
+	void saveAssimpCache(const char* path) const;
+	void processAssimpCollisionScene(const aiScene* scene);
 	void processAssimpNode(aiNode* node, const aiScene* scene, const glm::mat4& parentTransform, const std::string& fileDirectory);
 	void processAssimpMesh(aiMesh* mesh, const aiScene* scene, const glm::mat4& transform, const std::string& fileDirectory);
 	void finalizeAssimpBatches();
