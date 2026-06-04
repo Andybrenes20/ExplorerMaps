@@ -1,0 +1,3 @@
+﻿  main.cpp
+C:\Users\jurgu\source\repos\ExplorerMaps_V2\ExplorerMaps_V2\main.cpp(88,28): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+  ExplorerMaps_V2.vcxproj -> C:\Users\jurgu\source\repos\ExplorerMaps_V2\x64\Debug\ExplorerMaps_V2.exe
