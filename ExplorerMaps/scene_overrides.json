@@ -1,0 +1,25 @@
+{
+  "entities": [
+    {
+      "assetPath": "modelos/city2.glb",
+      "id": "city_root",
+      "name": "City",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "helpers": []
+}
