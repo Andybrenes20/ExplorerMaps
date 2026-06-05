@@ -39,11 +39,15 @@ bool isMovingAudio = false;
 bool isRunningAudio = false;
 
 // --- MÁQUINA DE ESTADOS DE JUEGO ---
-enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING };
+enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE };
 GameState currentState = STATE_MENU;
 
+// --- CONTROL DE AMBIENTE MANUAL/AUTOMÁTICO ---
+enum ModoAmbiente { MANUAL_DIA, MANUAL_NOCHE, AUTOMATICO };
+ModoAmbiente modoActual = AUTOMATICO; // Controla qué lógica aplicar
+
 // --- SISTEMA DE TIEMPO Y LUCES ---
-float timeOfDay = 10.0f; // Empezamos a las 10:00 AM
+float timeOfDay = 10.0f; // Empezamos a las 10:00 am
 float timeScale = 0.5f;  // Velocidad del tiempo
 glm::vec3 farolesPos[4]; // Posiciones de los faroles
 
@@ -254,7 +258,6 @@ int main() {
                         float alturaSueloFisico = origenCielo.y - distanciaAlSuelo;
                         cameraPos = glm::vec3(centroX, alturaSueloFisico + PLAYER_HEIGHT, centroZ);
 
-                        // INSTALAR LOS 4 FAROLES ALREDEDOR DEL SPAWN
                         farolesPos[0] = glm::vec3(centroX + 15.0f, alturaSueloFisico + 4.0f, centroZ + 15.0f);
                         farolesPos[1] = glm::vec3(centroX - 15.0f, alturaSueloFisico + 4.0f, centroZ - 15.0f);
                         farolesPos[2] = glm::vec3(centroX + 15.0f, alturaSueloFisico + 4.0f, centroZ - 15.0f);
@@ -262,7 +265,6 @@ int main() {
                     }
                     else {
                         cameraPos = glm::vec3(centroX, 10.0f, centroZ);
-                        // Fallback de faroles
                         for (int i = 0; i < 4; i++) farolesPos[i] = glm::vec3(centroX, 14.0f, centroZ);
                     }
 
@@ -298,15 +300,24 @@ int main() {
                 cameraPos.y -= 9.81f * deltaTime;
             }
 
-            // --- SISTEMA MATEMÁTICO DÍA/NOCHE (OSCURIDAD REAL) ---
-            timeOfDay += deltaTime * timeScale;
-            if (timeOfDay >= 24.0f) timeOfDay -= 24.0f;
+            // --- SISTEMA DE SELECCIÓN DE AMBIENTE ---
+            if (modoActual == MANUAL_DIA) {
+                timeOfDay = 12.0f; // Forzar mediodía constante
+            }
+            else if (modoActual == MANUAL_NOCHE) {
+                timeOfDay = 24.0f; // Forzar medianoche constante
+            }
+            else {
+                // Modo AUTOMÁTICO: El tiempo fluye solo
+                timeOfDay += deltaTime * timeScale;
+                if (timeOfDay >= 24.0f) timeOfDay -= 24.0f;
+            }
 
+            // --- CÁLCULOS MATEMÁTICOS DE ILUMINACIÓN ---
             float sunAngle = ((timeOfDay - 6.0f) / 24.0f) * glm::two_pi<float>();
             glm::vec3 sunDirection = glm::vec3(cos(sunAngle), sin(sunAngle), 0.2f);
             float blendFactor = glm::clamp(0.5f - (sunDirection.y * 5.0f), 0.0f, 1.0f);
 
-            // 1. Oscuridad Absoluta
             glm::vec3 dayAmbient(0.4f, 0.4f, 0.4f);
             glm::vec3 nightAmbient(0.005f, 0.005f, 0.015f);
             glm::vec3 currentAmbient = glm::mix(dayAmbient, nightAmbient, blendFactor);
@@ -319,20 +330,9 @@ int main() {
             }
             glm::vec3 currentDiffuse = glm::mix(dayDiffuse, nightDiffuse, blendFactor);
 
-            // 2. Control de Dirección
-            glm::vec3 activeLightDir;
-            if (sunDirection.y >= -0.1f) {
-                activeLightDir = -sunDirection;
-            }
-            else {
-                activeLightDir = sunDirection;
-            }
+            glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
 
-            // 3. Intensidad de Faroles
-            float streetlightIntensity = 0.0f;
-            if (blendFactor > 0.5f) {
-                streetlightIntensity = (blendFactor - 0.5f) * 2.0f;
-            }
+            float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
 
             glClearColor(currentAmbient.x, currentAmbient.y, currentAmbient.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -374,7 +374,7 @@ int main() {
                 glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
             }
 
-            // --- DIBUJAR SKYBOX ---
+            // DIBUJAR SKYBOX
             glDepthFunc(GL_LEQUAL);
             skyboxShader.use();
             glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp)));
@@ -390,6 +390,114 @@ int main() {
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
             glDepthFunc(GL_LESS);
+            break;
+        }
+
+        case STATE_PAUSE: {
+            // Mantenemos el renderizado del mapa estático al fondo para ver los cambios del menú en tiempo real
+            float sunAngle = ((timeOfDay - 6.0f) / 24.0f) * glm::two_pi<float>();
+            glm::vec3 sunDirection = glm::vec3(cos(sunAngle), sin(sunAngle), 0.2f);
+            float blendFactor = glm::clamp(0.5f - (sunDirection.y * 5.0f), 0.0f, 1.0f);
+
+            glm::vec3 dayAmbient(0.4f, 0.4f, 0.4f);
+            glm::vec3 nightAmbient(0.005f, 0.005f, 0.015f);
+            glm::vec3 currentAmbient = glm::mix(dayAmbient, nightAmbient, blendFactor);
+            glm::vec3 dayDiffuse(0.9f, 0.8f, 0.7f);
+            glm::vec3 nightDiffuse(0.01f, 0.02f, 0.05f);
+            if (blendFactor > 0.1f && blendFactor < 0.9f) {
+                dayDiffuse = glm::mix(dayDiffuse, glm::vec3(1.0f, 0.3f, 0.1f), 1.0f - abs(blendFactor - 0.5f) * 2.0f);
+            }
+            glm::vec3 currentDiffuse = glm::mix(dayDiffuse, nightDiffuse, blendFactor);
+            glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
+            float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
+
+            glClearColor(currentAmbient.x, currentAmbient.y, currentAmbient.z, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+            glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+            glm::mat4 model = glm::mat4(1.0f);
+
+            cityShader.use();
+            cityShader.setMat4("projection", projection);
+            cityShader.setMat4("view", view);
+            cityShader.setMat4("model", model);
+            cityShader.setVec3("viewPos", cameraPos);
+            cityShader.setVec3("light.direction", activeLightDir);
+            cityShader.setVec3("light.ambient", currentAmbient);
+            cityShader.setVec3("light.diffuse", currentDiffuse);
+            cityShader.setVec3("light.specular", currentDiffuse * 1.5f);
+            cityShader.setFloat("pointLightIntensity", streetlightIntensity);
+
+            glm::vec3 farolColor(1.0f, 0.6f, 0.2f);
+            for (int i = 0; i < 4; i++) {
+                std::string num = std::to_string(i);
+                cityShader.setVec3("pointLights[" + num + "].position", farolesPos[i]);
+                cityShader.setVec3("pointLights[" + num + "].ambient", farolColor * 0.1f);
+                cityShader.setVec3("pointLights[" + num + "].diffuse", farolColor);
+                cityShader.setFloat("pointLights[" + num + "].constant", 1.0f);
+                cityShader.setFloat("pointLights[" + num + "].linear", 0.09f);
+                cityShader.setFloat("pointLights[" + num + "].quadratic", 0.032f);
+            }
+
+            for (const auto& mesh : physics.visualMeshes) {
+                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+                glBindVertexArray(mesh.VAO); glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
+            }
+
+            glDepthFunc(GL_LEQUAL);
+            skyboxShader.use();
+            glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp)));
+            skyboxShader.setMat4("view", viewSkybox); skyboxShader.setMat4("projection", projection);
+            skyboxShader.setFloat("blendFactor", blendFactor);
+            glBindVertexArray(skyboxVAO);
+            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapDay);
+            glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapNight);
+            glDrawArrays(GL_TRIANGLES, 0, 36); glBindVertexArray(0); glDepthFunc(GL_LESS);
+
+            // --- INTERFAZ DEL MENÚ DE PAUSA ---
+            ImGui::SetNextWindowPos(ImVec2(SCR_WIDTH * 0.35f, SCR_HEIGHT * 0.25f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(400, 320), ImGuiCond_Always);
+
+            ImGui::Begin("MENU DE PAUSA", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "--- CONTROL AMBIENTAL ---");
+            ImGui::Separator();
+
+            int opcionModo = static_cast<int>(modoActual);
+            if (ImGui::RadioButton("Dia Manual", &opcionModo, 0)) modoActual = MANUAL_DIA;
+            if (ImGui::RadioButton("Noche Manual", &opcionModo, 1)) modoActual = MANUAL_NOCHE;
+            if (ImGui::RadioButton("Tiempo Automatico", &opcionModo, 2)) modoActual = AUTOMATICO;
+
+            ImGui::Separator();
+
+            if (modoActual == AUTOMATICO) {
+                ImGui::SliderFloat("Velocidad del Tiempo", &timeScale, 0.0f, 5.0f, "%.1fx");
+                ImGui::Text("Hora actual: %.2f hrs", timeOfDay);
+            }
+            else {
+                if (ImGui::SliderFloat("Ajustar Hora", &timeOfDay, 0.0f, 24.0f, "%.1f hrs")) {
+                    if (timeOfDay >= 6.0f && timeOfDay <= 18.0f) modoActual = MANUAL_DIA;
+                    else modoActual = MANUAL_NOCHE;
+                }
+            }
+
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+
+            if (ImGui::Button("REGRESAR AL JUEGO", ImVec2(380, 40))) {
+                currentState = STATE_RUNNING;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                firstMouse = true;
+            }
+            if (ImGui::Button("SALIR AL MENU PRINCIPAL", ImVec2(380, 40))) {
+                ma_sound_stop(&bgmCity);
+                // Reiniciamos variables de carga para permitir re-entrada limpia
+                loadingStarted = false;
+                currentLoadingProgress = 0.0f;
+                currentState = STATE_MENU;
+            }
+
+            ImGui::End();
             break;
         }
         }
@@ -427,11 +535,25 @@ int main() {
 }
 
 void processInput(GLFWwindow* window, PhysicsWorld& physics) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
+    // --- CONTROL DE PAUSA CON ESCAPE ---
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        if (currentState == STATE_RUNNING) {
+            currentState = STATE_PAUSE;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Muestra el cursor para ImGui
+            std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Evita rebotes por pulsación larga
+        }
+        else if (currentState == STATE_PAUSE) {
+            currentState = STATE_RUNNING;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); 
+            firstMouse = true; 
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+    }
 
+    // Si el juego está en el Menú Principal o en Pausa, no procesamos el movimiento del jugador
     if (currentState != STATE_RUNNING) return;
 
+    // --- LÓGICA DE MOVIMIENTO (FPS) ---
     float baseSpeed = 6.0f;
     bool isSprinting = false;
 
@@ -485,7 +607,6 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics) {
             if (isRunningAudio) { ma_sound_stop(&sfxCorrer); isRunningAudio = false; }
             if (!isMovingAudio) { ma_sound_start(&sfxPasos); isMovingAudio = true; }
         }
-
     }
     else {
         if (isMovingAudio) { ma_sound_stop(&sfxPasos); isMovingAudio = false; }
