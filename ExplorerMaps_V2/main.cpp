@@ -19,6 +19,13 @@
 #include "imgui/imgui_impl_opengl3.h"
 
 #include "PhysicsWorld.h"
+#include "Optimization.h"
+#include "PlayerMovementAnimation.h"
+#include "InteractionReticle.h"
+#include "GameplayInput.h"
+#include "EnvironmentSystem.h"
+#include "EnvironmentAudio.h"
+#include "WeatherOverlay.h"
 #include "Shader.h"
 
 // --- CONFIGURACIÓN GLOBAL ---
@@ -32,7 +39,6 @@ bool loadingStarted = false;
 
 // --- VARIABLES GLOBALES DE AUDIO ---
 ma_engine audioEngine;
-ma_sound bgmCity;
 ma_sound sfxPasos;
 ma_sound sfxCorrer;
 bool isMovingAudio = false;
@@ -41,9 +47,9 @@ bool isRunningAudio = false;
 // --- MÁQUINA DE ESTADOS DE JUEGO ---
 enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE };
 GameState currentState = STATE_MENU;
+enum ModoAmbiente { MANUAL_DIA, MANUAL_NOCHE, AUTOMATICO };
 
 // --- CONTROL DE AMBIENTE MANUAL/AUTOMÁTICO ---
-enum ModoAmbiente { MANUAL_DIA, MANUAL_NOCHE, AUTOMATICO };
 ModoAmbiente modoActual = AUTOMATICO; // Controla qué lógica aplicar
 
 // --- SISTEMA DE TIEMPO Y LUCES ---
@@ -67,11 +73,12 @@ float lastFrame = 0.0f;
 // --- DECLARACIÓN DE FUNCIONES ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
-void processInput(GLFWwindow* window, PhysicsWorld& physics);
+void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad);
 unsigned int loadCubemap(std::vector<std::string> faces);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
+    EnvironmentAudio environmentAudio;
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -100,9 +107,9 @@ int main() {
         std::cout << "Error fatal: No se pudo inicializar miniaudio." << std::endl;
         return -1;
     }
-    ma_sound_init_from_file(&audioEngine, "Sonidos/City.mp3", 0, NULL, NULL, &bgmCity);
-    ma_sound_set_looping(&bgmCity, MA_TRUE);
-    ma_sound_set_volume(&bgmCity, 0.4f);
+    if (!environmentAudio.Init(&audioEngine)) {
+        std::cout << "Advertencia: No se pudo inicializar el audio de ambiente." << std::endl;
+    }
 
     ma_sound_init_from_file(&audioEngine, "Sonidos/Caminar.mp3", 0, NULL, NULL, &sfxPasos);
     ma_sound_set_looping(&sfxPasos, MA_TRUE);
@@ -125,6 +132,10 @@ int main() {
     unsigned int cubemapDay, cubemapNight;
 
     PhysicsWorld physics;
+    std::vector<Optimization::MeshBounds> cityMeshBounds;
+    Optimization::SceneBounds citySceneBounds;
+    PlayerMovementAnimation movementAnimation;
+    EnvironmentSystem environmentSystem;
     Shader cityShader("city.vert", "city.frag");
     Shader skyboxShader("skybox.vert", "skybox.frag");
 
@@ -169,7 +180,7 @@ int main() {
 
     // 4. BUCLE PRINCIPAL DE RENDERIZADO
     while (!glfwWindowShouldClose(window)) {
-        float currentFrame = glfwGetTime();
+        float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
@@ -240,6 +251,8 @@ int main() {
                 bool exito = loadFuture.get();
                 if (exito && !physics.cityCollider.vertices.empty()) {
 
+                    cityMeshBounds = Optimization::BuildMeshBounds(physics.visualMeshes);
+                    citySceneBounds = Optimization::BuildSceneBounds(cityMeshBounds);
                     physics.UploadToGPU();
 
                     glm::vec3 minBounds = physics.cityCollider.vertices[0];
@@ -268,7 +281,7 @@ int main() {
                         for (int i = 0; i < 4; i++) farolesPos[i] = glm::vec3(centroX, 14.0f, centroZ);
                     }
 
-                    ma_sound_start(&bgmCity);
+                    environmentAudio.StartAmbient();
                 }
                 currentState = STATE_RUNNING;
             }
@@ -277,7 +290,16 @@ int main() {
 
         case STATE_RUNNING: {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            processInput(window, physics);
+            const GameplayGamepadInput gamepad = GameplayInput::ReadGamepad();
+            // Cambios de ambiente: ver EnvironmentSystem.cpp.
+            const EnvironmentFrame environmentFrame = environmentSystem.Update(window, gamepad, deltaTime, currentFrame);
+            environmentAudio.Update(environmentFrame, environmentSystem);
+            if (!environmentSystem.IsMenuOpen()) {
+                GameplayInput::ApplyGamepadCamera(gamepad, deltaTime, yaw, pitch, cameraFront);
+                processInput(window, physics, gamepad);
+            }
+            // Animacion de caminar/correr: ver PlayerMovementAnimation.cpp.
+            movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp);
 
             // Gravedad
             float distanceToGround = 0.0f;
@@ -301,7 +323,7 @@ int main() {
             }
 
             // --- SISTEMA DE SELECCIÓN DE AMBIENTE ---
-            if (modoActual == MANUAL_DIA) {
+            if (false && modoActual == MANUAL_DIA) {
                 timeOfDay = 12.0f; // Forzar mediodía constante
             }
             else if (modoActual == MANUAL_NOCHE) {
@@ -333,25 +355,31 @@ int main() {
             glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
 
             float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
+            blendFactor = environmentFrame.blendFactor;
+            currentAmbient = environmentFrame.ambient;
+            currentDiffuse = environmentFrame.diffuse;
+            activeLightDir = environmentFrame.activeLightDir;
+            streetlightIntensity = environmentFrame.streetlightIntensity;
 
-            glClearColor(currentAmbient.x, currentAmbient.y, currentAmbient.z, 1.0f);
+            glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
-            glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+            const glm::vec3 animatedCameraPos = cameraPos + movementAnimation.GetCameraOffset();
+            glm::mat4 view = glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
 
             cityShader.use();
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
             cityShader.setMat4("model", model);
-            cityShader.setVec3("viewPos", cameraPos);
+            cityShader.setVec3("viewPos", animatedCameraPos);
 
             // Luz Direccional
             cityShader.setVec3("light.direction", activeLightDir);
             cityShader.setVec3("light.ambient", currentAmbient);
             cityShader.setVec3("light.diffuse", currentDiffuse);
-            cityShader.setVec3("light.specular", currentDiffuse * 1.5f);
+            cityShader.setVec3("light.specular", environmentFrame.specular);
 
             // Luces Puntuales (Faroles)
             cityShader.setFloat("pointLightIntensity", streetlightIntensity);
@@ -367,17 +395,18 @@ int main() {
                 cityShader.setFloat("pointLights[" + num + "].quadratic", 0.032f);
             }
 
-            for (const auto& mesh : physics.visualMeshes) {
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, mesh.textureID);
-                glBindVertexArray(mesh.VAO);
-                glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
-            }
+            const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
+                projection,
+                view,
+                animatedCameraPos,
+                cameraFront,
+                citySceneBounds.radius);
+            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
 
             // DIBUJAR SKYBOX
             glDepthFunc(GL_LEQUAL);
             skyboxShader.use();
-            glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp)));
+            glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp)));
             skyboxShader.setMat4("view", viewSkybox);
             skyboxShader.setMat4("projection", projection);
             skyboxShader.setFloat("blendFactor", blendFactor);
@@ -390,6 +419,13 @@ int main() {
             glDrawArrays(GL_TRIANGLES, 0, 36);
             glBindVertexArray(0);
             glDepthFunc(GL_LESS);
+            // Punto central de interaccion: ver InteractionReticle.cpp.
+            InteractionReticle::DrawCenterDot(
+                static_cast<float>(SCR_WIDTH),
+                static_cast<float>(SCR_HEIGHT),
+                gamepad.interactDown || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
+            WeatherOverlay::Draw(environmentFrame, currentFrame, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+            environmentSystem.DrawMenu();
             break;
         }
 
@@ -410,8 +446,14 @@ int main() {
             glm::vec3 currentDiffuse = glm::mix(dayDiffuse, nightDiffuse, blendFactor);
             glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
             float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
+            const EnvironmentFrame environmentFrame = environmentSystem.BuildFrame(currentFrame);
+            blendFactor = environmentFrame.blendFactor;
+            currentAmbient = environmentFrame.ambient;
+            currentDiffuse = environmentFrame.diffuse;
+            activeLightDir = environmentFrame.activeLightDir;
+            streetlightIntensity = environmentFrame.streetlightIntensity;
 
-            glClearColor(currentAmbient.x, currentAmbient.y, currentAmbient.z, 1.0f);
+            glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
@@ -426,7 +468,7 @@ int main() {
             cityShader.setVec3("light.direction", activeLightDir);
             cityShader.setVec3("light.ambient", currentAmbient);
             cityShader.setVec3("light.diffuse", currentDiffuse);
-            cityShader.setVec3("light.specular", currentDiffuse * 1.5f);
+            cityShader.setVec3("light.specular", environmentFrame.specular);
             cityShader.setFloat("pointLightIntensity", streetlightIntensity);
 
             glm::vec3 farolColor(1.0f, 0.6f, 0.2f);
@@ -440,10 +482,13 @@ int main() {
                 cityShader.setFloat("pointLights[" + num + "].quadratic", 0.032f);
             }
 
-            for (const auto& mesh : physics.visualMeshes) {
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, mesh.textureID);
-                glBindVertexArray(mesh.VAO); glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
-            }
+            const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
+                projection,
+                view,
+                cameraPos,
+                cameraFront,
+                citySceneBounds.radius);
+            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
 
             glDepthFunc(GL_LEQUAL);
             skyboxShader.use();
@@ -464,23 +509,7 @@ int main() {
             ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "--- CONTROL AMBIENTAL ---");
             ImGui::Separator();
 
-            int opcionModo = static_cast<int>(modoActual);
-            if (ImGui::RadioButton("Dia", &opcionModo, 0)) modoActual = MANUAL_DIA;
-            if (ImGui::RadioButton("Noche", &opcionModo, 1)) modoActual = MANUAL_NOCHE;
-            if (ImGui::RadioButton("AUTO", &opcionModo, 2)) modoActual = AUTOMATICO;
-
-            ImGui::Separator();
-
-            if (modoActual == AUTOMATICO) {
-                ImGui::SliderFloat("Velocidad del Tiempo", &timeScale, 0.0f, 5.0f, "%.1fx");
-                ImGui::Text("Hora actual: %.2f hrs", timeOfDay);
-            }
-            else {
-                if (ImGui::SliderFloat("Ajustar Hora", &timeOfDay, 0.0f, 24.0f, "%.1f hrs")) {
-                    if (timeOfDay >= 6.0f && timeOfDay <= 18.0f) modoActual = MANUAL_DIA;
-                    else modoActual = MANUAL_NOCHE;
-                }
-            }
+            environmentSystem.DrawPauseControls();
 
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 
@@ -490,7 +519,7 @@ int main() {
                 firstMouse = true;
             }
             if (ImGui::Button("SALIR AL MENU PRINCIPAL", ImVec2(380, 40))) {
-                ma_sound_stop(&bgmCity);
+                environmentAudio.StopAmbient();
                 // Reiniciamos variables de carga para permitir re-entrada limpia
                 loadingStarted = false;
                 currentLoadingProgress = 0.0f;
@@ -510,7 +539,7 @@ int main() {
     }
 
     // 5. LIMPIEZA
-    ma_sound_uninit(&bgmCity);
+    environmentAudio.Shutdown();
     ma_sound_uninit(&sfxPasos);
     ma_sound_uninit(&sfxCorrer);
     ma_engine_uninit(&audioEngine);
@@ -534,7 +563,7 @@ int main() {
     return 0;
 }
 
-void processInput(GLFWwindow* window, PhysicsWorld& physics) {
+void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad) {
     // --- CONTROL DE PAUSA CON ESCAPE ---
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         if (currentState == STATE_RUNNING) {
@@ -557,20 +586,13 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics) {
     float baseSpeed = 6.0f;
     bool isSprinting = false;
 
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+    if (GameplayInput::IsRunning(window, gamepad)) {
         baseSpeed = 12.0f;
         isSprinting = true;
     }
 
     float cameraSpeed = baseSpeed * deltaTime;
-    glm::vec3 frontPlano = glm::normalize(glm::vec3(cameraFront.x, 0.0f, cameraFront.z));
-    glm::vec3 rightPlano = glm::normalize(glm::cross(frontPlano, cameraUp));
-
-    glm::vec3 moveDir(0.0f);
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) moveDir += frontPlano;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) moveDir -= frontPlano;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) moveDir -= rightPlano;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) moveDir += rightPlano;
+    glm::vec3 moveDir = GameplayInput::BuildMoveDirection(window, gamepad, cameraFront, cameraUp);
 
     if (glm::length(moveDir) > 0.0f) {
         moveDir = glm::normalize(moveDir);

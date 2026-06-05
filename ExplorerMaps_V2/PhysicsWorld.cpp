@@ -1,4 +1,5 @@
 #include "PhysicsWorld.h"
+#include "Optimization.h"
 #include <iostream>
 #include <GL/glew.h>
 
@@ -20,8 +21,10 @@ bool PhysicsWorld::LoadCollisionData(const std::string& path) {
     }
 
     visualMeshes.clear();
+    collisionSubMeshes.clear();
     cityCollider.vertices.clear();
     cityCollider.indices.clear();
+    lastRaycastMeshIndex = -1;
 
     unsigned int totalMeshes = scene->mNumMeshes;
     ProcessNode(scene->mRootNode, scene);
@@ -61,11 +64,22 @@ void PhysicsWorld::LoadSingleEmbeddedTexture(const aiTexture* texture, int textu
 }
 
 void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
-    unsigned int vertexOffset = cityCollider.vertices.size();
+    unsigned int vertexOffset = static_cast<unsigned int>(cityCollider.vertices.size());
+    CollisionSubMesh collisionSubMesh;
+    collisionSubMesh.indexStart = cityCollider.indices.size();
 
     // 1. Física
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        cityCollider.vertices.push_back(glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z));
+        const glm::vec3 position(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        cityCollider.vertices.push_back(position);
+        if (i == 0) {
+            collisionSubMesh.boundsMin = position;
+            collisionSubMesh.boundsMax = position;
+        }
+        else {
+            collisionSubMesh.boundsMin = glm::min(collisionSubMesh.boundsMin, position);
+            collisionSubMesh.boundsMax = glm::max(collisionSubMesh.boundsMax, position);
+        }
     }
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         aiFace face = mesh->mFaces[i];
@@ -75,6 +89,11 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
     }
 
     // 2. Extracción a Memoria Temporal (RAM)
+    collisionSubMesh.indexCount = cityCollider.indices.size() - collisionSubMesh.indexStart;
+    if (collisionSubMesh.indexCount > 0) {
+        collisionSubMeshes.push_back(collisionSubMesh);
+    }
+
     RenderMesh currentVisualMesh;
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
@@ -101,7 +120,7 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
             currentVisualMesh.tempIndices.push_back(face.mIndices[j]);
         }
     }
-    currentVisualMesh.numIndices = currentVisualMesh.tempIndices.size();
+    currentVisualMesh.numIndices = static_cast<unsigned int>(currentVisualMesh.tempIndices.size());
 
     // 3. Extracción de Material
     currentVisualMesh.diffuseColor = glm::vec3(0.5f, 0.5f, 0.5f);
@@ -219,15 +238,15 @@ bool PhysicsWorld::IntersectRayTriangle(glm::vec3 orig, glm::vec3 dir, glm::vec3
 }
 
 bool PhysicsWorld::Raycast(glm::vec3 origin, glm::vec3 direction, float& outDistance) {
-    float closestDistance = 999999.0f; bool hitSomething = false;
-    for (size_t i = 0; i < cityCollider.indices.size(); i += 3) {
-        glm::vec3 v0 = cityCollider.vertices[cityCollider.indices[i]];
-        glm::vec3 v1 = cityCollider.vertices[cityCollider.indices[i + 1]];
-        glm::vec3 v2 = cityCollider.vertices[cityCollider.indices[i + 2]];
-        float t = 0.0f;
-        if (IntersectRayTriangle(origin, direction, v0, v1, v2, t)) {
-            if (t < closestDistance) { closestDistance = t; hitSomething = true; }
-        }
+    if (glm::length(direction) <= 0.0001f) {
+        return false;
     }
-    if (hitSomething) outDistance = closestDistance; return hitSomething;
+
+    return Optimization::RaycastCollisionMeshes(
+        cityCollider,
+        collisionSubMeshes,
+        origin,
+        glm::normalize(direction),
+        outDistance,
+        lastRaycastMeshIndex);
 }

@@ -2,6 +2,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -11,6 +12,13 @@ struct CollisionMesh {
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> uvs;
     std::vector<unsigned int> indices;
+};
+
+struct CollisionSubMesh {
+    std::size_t indexStart = 0;
+    std::size_t indexCount = 0;
+    glm::vec3 boundsMin = glm::vec3(0.0f);
+    glm::vec3 boundsMax = glm::vec3(0.0f);
 };
 
 // Estructura para almacenar los píxeles crudos en RAM temporalmente
@@ -40,6 +48,7 @@ struct RenderMesh {
 class PhysicsWorld {
 public:
     CollisionMesh cityCollider;
+    std::vector<CollisionSubMesh> collisionSubMeshes;
     std::vector<RenderMesh> visualMeshes;
 
     bool LoadCollisionData(const std::string& path);
@@ -50,6 +59,7 @@ public:
 
 private:
     std::map<int, RawTextureData> pendingTextures;
+    int lastRaycastMeshIndex = -1;
 
     void ProcessNode(aiNode* node, const aiScene* scene);
     void ProcessMesh(aiMesh* mesh, const aiScene* scene);

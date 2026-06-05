@@ -111,17 +111,23 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)dependencias\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\dependencias\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(SolutionDir)dependencias\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\dependencias\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;assimp-vc143-mtd.lib;user32.lib;gdi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
+    <PostBuildEvent>
+      <Command>xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
+xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
+xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -132,17 +138,23 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)dependencias\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\dependencias\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(SolutionDir)dependencias\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\dependencias\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>opengl32.lib;glew32.lib;glfw3.lib;assimp-vc143-mtd.lib;user32.lib;gdi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
+    <PostBuildEvent>
+      <Command>xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
+xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
+xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
+xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Ambiente.h" />
@@ -151,9 +163,16 @@
     <ClInclude Include="imgui\imgui_impl_glfw.h" />
     <ClInclude Include="imgui\imgui_impl_opengl3.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
+    <ClInclude Include="InteractionReticle.h" />
+    <ClInclude Include="EnvironmentAudio.h" />
+    <ClInclude Include="EnvironmentSystem.h" />
+    <ClInclude Include="GameplayInput.h" />
     <ClInclude Include="miniaudio.h" />
+    <ClInclude Include="Optimization.h" />
     <ClInclude Include="PhysicsWorld.h" />
+    <ClInclude Include="PlayerMovementAnimation.h" />
     <ClInclude Include="Shader.h" />
+    <ClInclude Include="WeatherOverlay.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="imgui\imgui.cpp" />
@@ -161,8 +180,15 @@
     <ClCompile Include="imgui\imgui_impl_glfw.cpp" />
     <ClCompile Include="imgui\imgui_impl_opengl3.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="InteractionReticle.cpp" />
+    <ClCompile Include="EnvironmentAudio.cpp" />
+    <ClCompile Include="EnvironmentSystem.cpp" />
+    <ClCompile Include="GameplayInput.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Optimization.cpp" />
     <ClCompile Include="PhysicsWorld.cpp" />
+    <ClCompile Include="PlayerMovementAnimation.cpp" />
+    <ClCompile Include="WeatherOverlay.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
