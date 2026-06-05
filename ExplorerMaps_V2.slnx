@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="ExplorerMaps_V2/ExplorerMaps_V2.vcxproj" Id="410d3a37-fba3-49ce-a4e4-0282c54ee58f" />
+</Solution>
