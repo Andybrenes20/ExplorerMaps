@@ -492,6 +492,10 @@ bool IsGameplayMovementPressed(GLFWwindow* window, const GameplayGamepadInput& g
         glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
         glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
         glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || 
+        glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ||
         std::abs(gamepad.leftX) > 0.01f ||
         std::abs(gamepad.leftY) > 0.01f;
 }
@@ -897,11 +901,11 @@ void UpdateDrivableCar(
     }
 
     float acceleration = 0.0f;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    if ((glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) )
         acceleration += 95.0f;
     if (gamepad.rightTrigger > 0.02f)
         acceleration += 95.0f * gamepad.rightTrigger;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+    if ((glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) )
         acceleration -= 75.0f;
     if (gamepad.leftTrigger > 0.02f)
         acceleration -= 75.0f * gamepad.leftTrigger;

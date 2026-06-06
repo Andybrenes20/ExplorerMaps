@@ -290,9 +290,6 @@
     <None Include="assimp-vc143-mtd.dll" />
     <None Include="glew32.dll" />
     <None Include="glfw3.dll" />
-    <None Include="modelos\city.glb">
-      <Filter>modelos</Filter>
-    </None>
     <None Include="Iluminacion\lamp.frag">
       <Filter>iluminacion</Filter>
     </None>
@@ -312,10 +309,15 @@
       <Filter>Resource Files\Shaders</Filter>
     </None>
     <None Include="Shaders\menu.vert" />
-    <None Include="Shaders\menu.frag" />
     <None Include="Shaders\editor_line.frag" />
     <None Include="Shaders\editor_line.vert" />
     <None Include="modelos\Coches\Car_1\source\Car1.gltf" />
+    <None Include="..\..\..\..\Downloads\city.glb">
+      <Filter>modelos</Filter>
+    </None>
+    <None Include="Shaders\menu.frag">
+      <Filter>iluminacion</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Image Include="Texturas\Fonts\calibri.ttf">
