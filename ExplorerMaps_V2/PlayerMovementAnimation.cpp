@@ -14,9 +14,9 @@ namespace {
     }
 }
 
-void PlayerMovementAnimation::Update(GLFWwindow* window, const GameplayGamepadInput& gamepad, float deltaTime, const glm::vec3& cameraFront, const glm::vec3& cameraUp) {
+void PlayerMovementAnimation::Update(GLFWwindow* window, const GameplayGamepadInput& gamepad, float deltaTime, const glm::vec3& cameraFront, const glm::vec3& cameraUp, bool enabled) {
     // Aqui se calcula el balanceo de camara para caminar y correr.
-    moving = GameplayInput::IsMovementPressed(window, gamepad);
+    moving = enabled && GameplayInput::IsMovementPressed(window, gamepad);
     running = moving && GameplayInput::IsRunning(window, gamepad);
 
     const float targetBlend = moving ? 1.0f : 0.0f;

@@ -9,7 +9,7 @@ struct GameplayGamepadInput;
 // Implementacion completa en PlayerMovementAnimation.cpp.
 class PlayerMovementAnimation {
 public:
-    void Update(GLFWwindow* window, const GameplayGamepadInput& gamepad, float deltaTime, const glm::vec3& cameraFront, const glm::vec3& cameraUp);
+    void Update(GLFWwindow* window, const GameplayGamepadInput& gamepad, float deltaTime, const glm::vec3& cameraFront, const glm::vec3& cameraUp, bool enabled = true);
     glm::vec3 GetCameraOffset() const;
     bool IsMoving() const;
     bool IsRunning() const;

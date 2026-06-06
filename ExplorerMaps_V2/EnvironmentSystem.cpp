@@ -138,22 +138,22 @@ EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     const float sunLightIntensity = glm::mix(0.34f, 1.36f, sunPresence);
     const glm::vec3 sunAmbientColor = glm::mix(
         glm::vec3(0.07f, 0.07f, 0.10f),
-        glm::vec3(0.34f, 0.37f, 0.40f),
+        glm::vec3(0.25f, 0.29f, 0.34f),
         glm::smoothstep(-0.02f, 0.72f, sunHeight));
-    const float sunDiffuseIntensity = glm::mix(0.22f, 1.0f, sunPresence);
+    const float sunDiffuseIntensity = glm::mix(0.24f, 1.16f, sunPresence);
     const float sunSpecularIntensity = glm::mix(0.12f, 0.60f, sunPresence);
 
     const glm::vec3 moonLightColor = glm::mix(
-        glm::vec3(0.50f, 0.56f, 0.74f),
-        glm::vec3(0.65f, 0.70f, 0.90f),
+        glm::vec3(0.52f, 0.57f, 0.70f),
+        glm::vec3(0.63f, 0.69f, 0.84f),
         moonHeight);
-    const float moonLightIntensity = glm::mix(0.14f, 0.34f, moonPresence * moonHeight);
+    const float moonLightIntensity = glm::mix(0.18f, 0.38f, moonPresence * moonHeight);
     const glm::vec3 moonAmbientColor = glm::mix(
-        glm::vec3(0.05f, 0.06f, 0.08f),
-        glm::vec3(0.08f, 0.10f, 0.15f),
+        glm::vec3(0.045f, 0.052f, 0.070f),
+        glm::vec3(0.075f, 0.090f, 0.125f),
         glm::smoothstep(-0.90f, -0.10f, sunHeight));
-    const float moonDiffuseIntensity = glm::mix(0.22f, 0.35f, moonPresence);
-    const float moonSpecularIntensity = glm::mix(0.10f, 0.15f, moonPresence);
+    const float moonDiffuseIntensity = glm::mix(0.25f, 0.40f, moonPresence);
+    const float moonSpecularIntensity = glm::mix(0.13f, 0.20f, moonPresence);
 
     glm::vec3 mainLightPosition = glm::mix(moonPosition, sunPosition, dayLightBlend);
     glm::vec3 mainLightColor = glm::mix(moonLightColor, sunLightColor, dayLightBlend);
@@ -197,6 +197,7 @@ EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     frame.nightFactor = glm::clamp(-sunHeight + 0.1f, 0.0f, 1.0f);
     frame.rainIntensity = rainSmoothed;
     frame.lightningAmount = lightningAmount;
+    frame.lightningSeed = lightningSeed;
     frame.sunDirection = glm::normalize(glm::vec3(std::cos(sunAngle), std::sin(sunAngle), std::sin(sunAngle) * 0.5f));
     frame.moonPosition = moonPosition;
     frame.mainLightPosition = mainLightPosition;
@@ -207,6 +208,12 @@ EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     frame.diffuse = diffuse;
     frame.specular = specular;
     frame.streetlightIntensity = std::clamp(frame.nightFactor + rainSmoothed * 0.35f, 0.0f, 1.0f);
+    frame.windowLightIntensity = std::clamp(glm::smoothstep(0.08f, 0.62f, frame.nightFactor) + rainSmoothed * 0.18f, 0.0f, 1.0f);
+    frame.cloudCoverage = glm::mix(0.72f, 0.90f, rainSmoothed);
+    frame.cloudSpeed = glm::mix(0.58f, 1.25f, rainSmoothed);
+    frame.cloudDensity = glm::mix(1.08f, 1.70f, rainSmoothed);
+    frame.cloudCrispiness = glm::mix(0.84f, 0.58f, rainSmoothed);
+    frame.cloudColor = glm::mix(glm::vec3(0.56f, 0.60f, 0.66f), glm::vec3(0.34f, 0.39f, 0.46f), rainSmoothed);
     frame.clearColor = glm::clamp(clearColor, glm::vec3(0.0f), glm::vec3(1.0f));
     return frame;
 }

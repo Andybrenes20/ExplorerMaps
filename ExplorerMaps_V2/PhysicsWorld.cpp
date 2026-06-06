@@ -12,8 +12,11 @@ bool PhysicsWorld::LoadCollisionData(const std::string& path) {
     currentLoadingProgress = 0.01f;
 
     Assimp::Importer importer;
-    // IMPORTANTE: FlipUVs activado para corregir orientación desde la extracción
-    const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals);
+    const aiScene* scene = importer.ReadFile(
+        path,
+        aiProcess_Triangulate |
+        aiProcess_JoinIdenticalVertices |
+        aiProcess_GenSmoothNormals);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "ERROR::ASSIMP:: " << importer.GetErrorString() << std::endl;
@@ -175,11 +178,10 @@ void PhysicsWorld::UploadToGPU() {
 
             GLenum format = (tex.nrChannels == 4) ? GL_RGBA : GL_RGB;
             glTexImage2D(GL_TEXTURE_2D, 0, format, tex.width, tex.height, 0, format, GL_UNSIGNED_BYTE, tex.pixels);
-            glGenerateMipmap(GL_TEXTURE_2D);
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             stbi_image_free(tex.pixels); // Liberar RAM

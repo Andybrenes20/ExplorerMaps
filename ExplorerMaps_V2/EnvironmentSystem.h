@@ -21,6 +21,7 @@ struct EnvironmentFrame {
     float nightFactor = 0.0f;
     float rainIntensity = 0.0f;
     float lightningAmount = 0.0f;
+    float lightningSeed = 0.0f;
     glm::vec3 sunDirection = glm::vec3(0.0f, 1.0f, 0.2f);
     glm::vec3 moonPosition = glm::vec3(0.0f);
     glm::vec3 mainLightPosition = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -31,6 +32,12 @@ struct EnvironmentFrame {
     glm::vec3 diffuse = glm::vec3(0.9f, 0.8f, 0.7f);
     glm::vec3 specular = glm::vec3(1.0f);
     float streetlightIntensity = 0.0f;
+    float windowLightIntensity = 0.0f;
+    float cloudCoverage = 0.72f;
+    float cloudSpeed = 0.65f;
+    float cloudDensity = 1.08f;
+    float cloudCrispiness = 0.82f;
+    glm::vec3 cloudColor = glm::vec3(0.56f, 0.60f, 0.66f);
     glm::vec3 clearColor = glm::vec3(0.4f);
 };
 

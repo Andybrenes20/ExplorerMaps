@@ -3,6 +3,7 @@
 #include <string>
 #include <thread>
 #include <future>
+#include <cstdio>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -12,7 +13,6 @@
 // --- INCLUDES EXTERNOS ---
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
-#include "stb/stb_image.h" 
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_glfw.h"
@@ -29,9 +29,10 @@
 #include "Shader.h"
 
 // --- CONFIGURACIÓN GLOBAL ---
-const unsigned int SCR_WIDTH = 1280;
-const unsigned int SCR_HEIGHT = 720;
+const unsigned int SCR_WIDTH = 1920;
+const unsigned int SCR_HEIGHT = 1080;
 const float PLAYER_HEIGHT = 1.75f;
+const glm::vec3 PLAYER_SPAWN = glm::vec3(23.7f, 37.8f, 143.5f);
 
 // --- VARIABLES DE BARRA DE PROGRESO ---
 float currentLoadingProgress = 0.0f;
@@ -43,18 +44,14 @@ ma_sound sfxPasos;
 ma_sound sfxCorrer;
 bool isMovingAudio = false;
 bool isRunningAudio = false;
+bool isFlying = false;
+bool flyToggleWasPressed = false;
 
 // --- MÁQUINA DE ESTADOS DE JUEGO ---
 enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE };
 GameState currentState = STATE_MENU;
-enum ModoAmbiente { MANUAL_DIA, MANUAL_NOCHE, AUTOMATICO };
 
-// --- CONTROL DE AMBIENTE MANUAL/AUTOMÁTICO ---
-ModoAmbiente modoActual = AUTOMATICO; // Controla qué lógica aplicar
-
-// --- SISTEMA DE TIEMPO Y LUCES ---
-float timeOfDay = 10.0f; // Empezamos a las 10:00 AM
-float timeScale = 0.5f;  // Velocidad del tiempo
+// --- SISTEMA DE LUCES URBANAS ---
 glm::vec3 farolesPos[4]; // Posiciones de los faroles
 
 // --- VARIABLES DE CÁMARA (FPS) ---
@@ -74,7 +71,10 @@ float lastFrame = 0.0f;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
 void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad);
-unsigned int loadCubemap(std::vector<std::string> faces);
+bool processFlightInput(GLFWwindow* window);
+void UpdateWindowTitle(GLFWwindow* window, float currentFrame);
+void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame);
+void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -129,7 +129,6 @@ int main() {
 
     // Instanciar mundos físicos y Shaders
     unsigned int skyboxVAO, skyboxVBO;
-    unsigned int cubemapDay, cubemapNight;
 
     PhysicsWorld physics;
     std::vector<Optimization::MeshBounds> cityMeshBounds;
@@ -160,24 +159,6 @@ int main() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
     // Cargar texturas del cielo
-    std::vector<std::string> facesDay = {
-        "Texturas/Skybox_Day/px.png", "Texturas/Skybox_Day/nx.png",
-        "Texturas/Skybox_Day/py.png", "Texturas/Skybox_Day/ny.png",
-        "Texturas/Skybox_Day/pz.png", "Texturas/Skybox_Day/nz.png"
-    };
-    cubemapDay = loadCubemap(facesDay);
-
-    std::vector<std::string> facesNight = {
-        "Texturas/Skybox_Nigth/px.png", "Texturas/Skybox_Nigth/nx.png",
-        "Texturas/Skybox_Nigth/py.png", "Texturas/Skybox_Nigth/ny.png",
-        "Texturas/Skybox_Nigth/pz.png", "Texturas/Skybox_Nigth/nz.png"
-    };
-    cubemapNight = loadCubemap(facesNight);
-
-    skyboxShader.use();
-    skyboxShader.setInt("skyboxDay", 0);
-    skyboxShader.setInt("skyboxNight", 1);
-
     // 4. BUCLE PRINCIPAL DE RENDERIZADO
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = static_cast<float>(glfwGetTime());
@@ -281,6 +262,8 @@ int main() {
                         for (int i = 0; i < 4; i++) farolesPos[i] = glm::vec3(centroX, 14.0f, centroZ);
                     }
 
+                    cameraPos = PLAYER_SPAWN;
+                    isFlying = false;
                     environmentAudio.StartAmbient();
                 }
                 currentState = STATE_RUNNING;
@@ -299,67 +282,30 @@ int main() {
                 processInput(window, physics, gamepad);
             }
             // Animacion de caminar/correr: ver PlayerMovementAnimation.cpp.
-            movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp);
+            movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp, !isFlying);
 
             // Gravedad
-            float distanceToGround = 0.0f;
-            glm::vec3 rayOrigin = cameraPos;
-            rayOrigin.y += 1.0f;
-            glm::vec3 rayDir = glm::vec3(0.0f, -1.0f, 0.0f);
+            if (!isFlying) {
+                float distanceToGround = 0.0f;
+                glm::vec3 rayOrigin = cameraPos;
+                rayOrigin.y += 1.0f;
+                glm::vec3 rayDir = glm::vec3(0.0f, -1.0f, 0.0f);
 
-            if (physics.Raycast(rayOrigin, rayDir, distanceToGround)) {
-                float floorY = rayOrigin.y - distanceToGround;
-                float currentFeetY = cameraPos.y - PLAYER_HEIGHT;
-                float stepHeight = floorY - currentFeetY;
-                if (stepHeight > 0.6f || stepHeight < -0.5f) {
-                    cameraPos.y -= 9.81f * deltaTime;
+                if (physics.Raycast(rayOrigin, rayDir, distanceToGround)) {
+                    float floorY = rayOrigin.y - distanceToGround;
+                    float currentFeetY = cameraPos.y - PLAYER_HEIGHT;
+                    float stepHeight = floorY - currentFeetY;
+                    if (stepHeight > 0.6f || stepHeight < -0.5f) {
+                        cameraPos.y -= 9.81f * deltaTime;
+                    }
+                    else {
+                        cameraPos.y = floorY + PLAYER_HEIGHT;
+                    }
                 }
                 else {
-                    cameraPos.y = floorY + PLAYER_HEIGHT;
+                    cameraPos.y -= 9.81f * deltaTime;
                 }
             }
-            else {
-                cameraPos.y -= 9.81f * deltaTime;
-            }
-
-            // --- SISTEMA DE SELECCIÓN DE AMBIENTE ---
-            if (false && modoActual == MANUAL_DIA) {
-                timeOfDay = 12.0f; // Forzar mediodía constante
-            }
-            else if (modoActual == MANUAL_NOCHE) {
-                timeOfDay = 24.0f; // Forzar medianoche constante
-            }
-            else {
-                // Modo AUTOMÁTICO: El tiempo fluye solo
-                timeOfDay += deltaTime * timeScale;
-                if (timeOfDay >= 24.0f) timeOfDay -= 24.0f;
-            }
-
-            // --- CÁLCULOS MATEMÁTICOS DE ILUMINACIÓN ---
-            float sunAngle = ((timeOfDay - 6.0f) / 24.0f) * glm::two_pi<float>();
-            glm::vec3 sunDirection = glm::vec3(cos(sunAngle), sin(sunAngle), 0.2f);
-            float blendFactor = glm::clamp(0.5f - (sunDirection.y * 5.0f), 0.0f, 1.0f);
-
-            glm::vec3 dayAmbient(0.4f, 0.4f, 0.4f);
-            glm::vec3 nightAmbient(0.005f, 0.005f, 0.015f);
-            glm::vec3 currentAmbient = glm::mix(dayAmbient, nightAmbient, blendFactor);
-
-            glm::vec3 dayDiffuse(0.9f, 0.8f, 0.7f);
-            glm::vec3 nightDiffuse(0.01f, 0.02f, 0.05f);
-
-            if (blendFactor > 0.1f && blendFactor < 0.9f) {
-                dayDiffuse = glm::mix(dayDiffuse, glm::vec3(1.0f, 0.3f, 0.1f), 1.0f - abs(blendFactor - 0.5f) * 2.0f);
-            }
-            glm::vec3 currentDiffuse = glm::mix(dayDiffuse, nightDiffuse, blendFactor);
-
-            glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
-
-            float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
-            blendFactor = environmentFrame.blendFactor;
-            currentAmbient = environmentFrame.ambient;
-            currentDiffuse = environmentFrame.diffuse;
-            activeLightDir = environmentFrame.activeLightDir;
-            streetlightIntensity = environmentFrame.streetlightIntensity;
 
             glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -373,27 +319,7 @@ int main() {
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
             cityShader.setMat4("model", model);
-            cityShader.setVec3("viewPos", animatedCameraPos);
-
-            // Luz Direccional
-            cityShader.setVec3("light.direction", activeLightDir);
-            cityShader.setVec3("light.ambient", currentAmbient);
-            cityShader.setVec3("light.diffuse", currentDiffuse);
-            cityShader.setVec3("light.specular", environmentFrame.specular);
-
-            // Luces Puntuales (Faroles)
-            cityShader.setFloat("pointLightIntensity", streetlightIntensity);
-            glm::vec3 farolColor(1.0f, 0.6f, 0.2f);
-
-            for (int i = 0; i < 4; i++) {
-                std::string num = std::to_string(i);
-                cityShader.setVec3("pointLights[" + num + "].position", farolesPos[i]);
-                cityShader.setVec3("pointLights[" + num + "].ambient", farolColor * 0.1f);
-                cityShader.setVec3("pointLights[" + num + "].diffuse", farolColor);
-                cityShader.setFloat("pointLights[" + num + "].constant", 1.0f);
-                cityShader.setFloat("pointLights[" + num + "].linear", 0.09f);
-                cityShader.setFloat("pointLights[" + num + "].quadratic", 0.032f);
-            }
+            UploadCityEnvironment(cityShader, environmentFrame, animatedCameraPos, currentFrame);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
                 projection,
@@ -403,22 +329,7 @@ int main() {
                 citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
 
-            // DIBUJAR SKYBOX
-            glDepthFunc(GL_LEQUAL);
-            skyboxShader.use();
-            glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp)));
-            skyboxShader.setMat4("view", viewSkybox);
-            skyboxShader.setMat4("projection", projection);
-            skyboxShader.setFloat("blendFactor", blendFactor);
-
-            glBindVertexArray(skyboxVAO);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapDay);
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapNight);
-            glDrawArrays(GL_TRIANGLES, 0, 36);
-            glBindVertexArray(0);
-            glDepthFunc(GL_LESS);
+            DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, animatedCameraPos, currentFrame);
             // Punto central de interaccion: ver InteractionReticle.cpp.
             InteractionReticle::DrawCenterDot(
                 static_cast<float>(SCR_WIDTH),
@@ -431,27 +342,7 @@ int main() {
 
         case STATE_PAUSE: {
             // Mantenemos el renderizado del mapa estático al fondo para ver los cambios del menú en tiempo real
-            float sunAngle = ((timeOfDay - 6.0f) / 24.0f) * glm::two_pi<float>();
-            glm::vec3 sunDirection = glm::vec3(cos(sunAngle), sin(sunAngle), 0.2f);
-            float blendFactor = glm::clamp(0.5f - (sunDirection.y * 5.0f), 0.0f, 1.0f);
-
-            glm::vec3 dayAmbient(0.4f, 0.4f, 0.4f);
-            glm::vec3 nightAmbient(0.005f, 0.005f, 0.015f);
-            glm::vec3 currentAmbient = glm::mix(dayAmbient, nightAmbient, blendFactor);
-            glm::vec3 dayDiffuse(0.9f, 0.8f, 0.7f);
-            glm::vec3 nightDiffuse(0.01f, 0.02f, 0.05f);
-            if (blendFactor > 0.1f && blendFactor < 0.9f) {
-                dayDiffuse = glm::mix(dayDiffuse, glm::vec3(1.0f, 0.3f, 0.1f), 1.0f - abs(blendFactor - 0.5f) * 2.0f);
-            }
-            glm::vec3 currentDiffuse = glm::mix(dayDiffuse, nightDiffuse, blendFactor);
-            glm::vec3 activeLightDir = (sunDirection.y >= -0.1f) ? -sunDirection : sunDirection;
-            float streetlightIntensity = (blendFactor > 0.5f) ? (blendFactor - 0.5f) * 2.0f : 0.0f;
             const EnvironmentFrame environmentFrame = environmentSystem.BuildFrame(currentFrame);
-            blendFactor = environmentFrame.blendFactor;
-            currentAmbient = environmentFrame.ambient;
-            currentDiffuse = environmentFrame.diffuse;
-            activeLightDir = environmentFrame.activeLightDir;
-            streetlightIntensity = environmentFrame.streetlightIntensity;
 
             glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -464,23 +355,7 @@ int main() {
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
             cityShader.setMat4("model", model);
-            cityShader.setVec3("viewPos", cameraPos);
-            cityShader.setVec3("light.direction", activeLightDir);
-            cityShader.setVec3("light.ambient", currentAmbient);
-            cityShader.setVec3("light.diffuse", currentDiffuse);
-            cityShader.setVec3("light.specular", environmentFrame.specular);
-            cityShader.setFloat("pointLightIntensity", streetlightIntensity);
-
-            glm::vec3 farolColor(1.0f, 0.6f, 0.2f);
-            for (int i = 0; i < 4; i++) {
-                std::string num = std::to_string(i);
-                cityShader.setVec3("pointLights[" + num + "].position", farolesPos[i]);
-                cityShader.setVec3("pointLights[" + num + "].ambient", farolColor * 0.1f);
-                cityShader.setVec3("pointLights[" + num + "].diffuse", farolColor);
-                cityShader.setFloat("pointLights[" + num + "].constant", 1.0f);
-                cityShader.setFloat("pointLights[" + num + "].linear", 0.09f);
-                cityShader.setFloat("pointLights[" + num + "].quadratic", 0.032f);
-            }
+            UploadCityEnvironment(cityShader, environmentFrame, cameraPos, currentFrame);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
                 projection,
@@ -490,15 +365,7 @@ int main() {
                 citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
 
-            glDepthFunc(GL_LEQUAL);
-            skyboxShader.use();
-            glm::mat4 viewSkybox = glm::mat4(glm::mat3(glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp)));
-            skyboxShader.setMat4("view", viewSkybox); skyboxShader.setMat4("projection", projection);
-            skyboxShader.setFloat("blendFactor", blendFactor);
-            glBindVertexArray(skyboxVAO);
-            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapDay);
-            glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapNight);
-            glDrawArrays(GL_TRIANGLES, 0, 36); glBindVertexArray(0); glDepthFunc(GL_LESS);
+            DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, cameraPos, currentFrame);
 
             // --- INTERFAZ DEL MENÚ DE PAUSA ---
             ImGui::SetNextWindowPos(ImVec2(SCR_WIDTH * 0.35f, SCR_HEIGHT * 0.25f), ImGuiCond_Always);
@@ -534,6 +401,7 @@ int main() {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        UpdateWindowTitle(window, currentFrame);
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
@@ -581,6 +449,10 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamep
 
     // Si el juego está en el Menú Principal o en Pausa, no procesamos el movimiento del jugador
     if (currentState != STATE_RUNNING) return;
+
+    if (processFlightInput(window)) {
+        return;
+    }
 
     // --- LÓGICA DE MOVIMIENTO (FPS) ---
     float baseSpeed = 6.0f;
@@ -636,6 +508,59 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamep
     }
 }
 
+bool processFlightInput(GLFWwindow* window) {
+    const bool togglePressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
+    if (togglePressed && !flyToggleWasPressed) {
+        isFlying = !isFlying;
+    }
+    flyToggleWasPressed = togglePressed;
+
+    if (!isFlying) {
+        return false;
+    }
+
+    if (isMovingAudio) { ma_sound_stop(&sfxPasos); isMovingAudio = false; }
+    if (isRunningAudio) { ma_sound_stop(&sfxCorrer); isRunningAudio = false; }
+
+    glm::vec3 right = glm::cross(cameraFront, cameraUp);
+    if (glm::length(right) > 0.0001f) {
+        right = glm::normalize(right);
+    }
+
+    glm::vec3 flyDirection(0.0f);
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) flyDirection += cameraFront;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) flyDirection -= cameraFront;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) flyDirection -= right;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) flyDirection += right;
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) flyDirection += cameraUp;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) flyDirection -= cameraUp;
+
+    if (glm::length(flyDirection) > 0.0001f) {
+        const float speed = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 24.0f : 16.0f;
+        cameraPos += glm::normalize(flyDirection) * speed * deltaTime;
+    }
+    return true;
+}
+
+void UpdateWindowTitle(GLFWwindow* window, float currentFrame) {
+    static float nextUpdateTime = 0.0f;
+    if (currentFrame < nextUpdateTime) {
+        return;
+    }
+    nextUpdateTime = currentFrame + 0.1f;
+
+    char title[160];
+    std::snprintf(
+        title,
+        sizeof(title),
+        "Motor Grafico - ExplorerMaps | X: %.1f  Y: %.1f  Z: %.1f%s",
+        cameraPos.x,
+        cameraPos.y,
+        cameraPos.z,
+        isFlying ? " | VOLANDO" : "");
+    glfwSetWindowTitle(window, title);
+}
+
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     if (currentState != STATE_RUNNING) return;
 
@@ -658,34 +583,59 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-unsigned int loadCubemap(std::vector<std::string> faces) {
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
+    shader.setVec3("viewPos", viewPosition);
+    shader.setVec3("light.direction", frame.activeLightDir);
+    shader.setVec3("light.ambient", frame.ambient);
+    shader.setVec3("light.diffuse", frame.diffuse);
+    shader.setVec3("light.specular", frame.specular);
+    shader.setFloat("time", currentFrame);
+    shader.setFloat("dayFactor", frame.dayFactor);
+    shader.setFloat("nightFactor", frame.nightFactor);
+    shader.setFloat("rainIntensity", frame.rainIntensity);
+    shader.setFloat("sunHeight", frame.sunHeight);
+    shader.setFloat("windowLightIntensity", frame.windowLightIntensity);
+    shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
 
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(false);
-
-    for (unsigned int i = 0; i < faces.size(); i++) {
-        unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
-        if (data) {
-            GLenum format = GL_RGB;
-            if (nrChannels == 4) format = GL_RGBA;
-
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            stbi_image_free(data);
-        }
-        else {
-            std::cout << "Cubemap falló en: " << faces[i] << std::endl;
-            stbi_image_free(data);
-        }
+    const glm::vec3 lampColor(1.0f, 0.60f, 0.20f);
+    for (int i = 0; i < 4; ++i) {
+        const std::string name = "pointLights[" + std::to_string(i) + "]";
+        shader.setVec3(name + ".position", farolesPos[i]);
+        shader.setVec3(name + ".ambient", lampColor * 0.1f);
+        shader.setVec3(name + ".diffuse", lampColor);
+        shader.setVec3(name + ".specular", lampColor);
+        shader.setFloat(name + ".constant", 1.0f);
+        shader.setFloat(name + ".linear", 0.09f);
+        shader.setFloat(name + ".quadratic", 0.032f);
     }
+}
 
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame) {
+    glm::vec3 moonDirection = frame.moonPosition - cameraPosition;
+    moonDirection = glm::length(moonDirection) > 0.001f ? glm::normalize(moonDirection) : -frame.sunDirection;
 
-    return textureID;
+    glDepthFunc(GL_LEQUAL);
+    shader.use();
+    shader.setMat4("view", glm::mat4(glm::mat3(view)));
+    shader.setMat4("projection", projection);
+    shader.setFloat("blendFactor", frame.blendFactor);
+    shader.setFloat("time", currentFrame);
+    shader.setFloat("sunHeight", frame.sunHeight);
+    shader.setVec3("sunDir", frame.sunDirection);
+    shader.setVec3("moonDir", moonDirection);
+    shader.setFloat("rainIntensity", frame.rainIntensity);
+    shader.setFloat("lightningAmount", frame.lightningAmount);
+    shader.setFloat("lightningSeed", frame.lightningSeed);
+    shader.setVec3("cameraPosition", cameraPosition);
+    shader.setFloat("cloudCoverage", frame.cloudCoverage);
+    shader.setFloat("cloudSpeed", frame.cloudSpeed);
+    shader.setFloat("cloudDensity", frame.cloudDensity);
+    shader.setFloat("cloudCrispiness", frame.cloudCrispiness);
+    shader.setVec3("cloudColor", frame.cloudColor);
+    glUniform2f(glGetUniformLocation(shader.ID, "resolution"), static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+
+    glBindVertexArray(skyboxVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    glDepthFunc(GL_LESS);
 }
