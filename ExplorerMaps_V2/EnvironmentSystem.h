@@ -20,6 +20,7 @@ struct EnvironmentFrame {
     float dayFactor = 1.0f;
     float nightFactor = 0.0f;
     float rainIntensity = 0.0f;
+    float fogIntensity = 0.0f;
     float lightningAmount = 0.0f;
     float lightningSeed = 0.0f;
     glm::vec3 sunDirection = glm::vec3(0.0f, 1.0f, 0.2f);
@@ -56,8 +57,10 @@ private:
     EnvironmentMode mode = EnvironmentMode::Auto;
     float timeOfDayHours = 10.0f;
     float timeScale = 0.5f;
+    float celestialDay = 0.0f;
     float rainTarget = 0.0f;
     float rainSmoothed = 0.0f;
+    float fogSmoothed = 0.0f;
     float lightningStart = -10.0f;
     float lightningDuration = 0.0f;
     float lightningStrength = 0.0f;

@@ -23,6 +23,15 @@ namespace {
         return ((WrapHours(hours) - 6.0f) / 24.0f) * glm::two_pi<float>();
     }
 
+    glm::vec3 RotateAroundY(const glm::vec3& value, float angle) {
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        return glm::vec3(
+            value.x * c + value.z * s,
+            value.y,
+            -value.x * s + value.z * c);
+    }
+
     float ComputeSkyBlendFactor(float sunHeight) {
         return glm::smoothstep(0.28f, -0.18f, sunHeight);
     }
@@ -76,9 +85,16 @@ EnvironmentFrame EnvironmentSystem::Update(GLFWwindow* window, const GameplayGam
     }
     else if (mode == EnvironmentMode::Auto) {
         timeOfDayHours = WrapHours(timeOfDayHours + deltaTime * timeScale);
+        celestialDay += deltaTime * timeScale / 24.0f;
     }
 
     rainSmoothed += (rainTarget - rainSmoothed) * std::clamp(deltaTime * 2.8f, 0.0f, 1.0f);
+    const float fogCycle = std::fmod(currentFrame, 90.0f);
+    const float fogArrival = glm::smoothstep(18.0f, 34.0f, fogCycle);
+    const float fogDeparture = 1.0f - glm::smoothstep(58.0f, 82.0f, fogCycle);
+    const float fogVariation = 0.72f + 0.28f * std::sin(currentFrame * 0.17f);
+    const float fogTarget = std::clamp(fogArrival * fogDeparture * fogVariation + rainSmoothed * 0.34f, 0.0f, 0.82f);
+    fogSmoothed += (fogTarget - fogSmoothed) * std::clamp(deltaTime * 0.42f, 0.0f, 1.0f);
     UpdateLightning(currentFrame);
 
     return BuildFrame(currentFrame);
@@ -87,11 +103,14 @@ EnvironmentFrame EnvironmentSystem::Update(GLFWwindow* window, const GameplayGam
 EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     // Aqui se convierten hora/lluvia/rayos en valores finales para shaders y cielo.
     float sunAngle = HoursToSunAngle(timeOfDayHours);
-    float sunHeight = std::sin(sunAngle);
+    const float orbitHeading = glm::radians(24.0f) * std::sin(celestialDay * 0.71f) +
+        glm::radians(12.0f) * std::sin(celestialDay * 0.23f + 1.7f);
+    const float sunAltitudeScale = 0.86f + 0.14f * std::sin(celestialDay * 0.37f + 0.8f);
+    float sunHeight = std::sin(sunAngle) * sunAltitudeScale;
 
     if (mode == EnvironmentMode::Day) {
         sunAngle = 0.58f;
-        sunHeight = std::sin(sunAngle);
+        sunHeight = std::sin(sunAngle) * sunAltitudeScale;
     }
     else if (mode == EnvironmentMode::Night) {
         sunAngle = 4.71239f;
@@ -106,19 +125,22 @@ EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
         : (mode == EnvironmentMode::Night ? 1.0f : ComputeSkyBlendFactor(sunHeight));
 
     const float sunHorizontal = std::cos(sunAngle);
-    const float sunVertical = sunHeight;
-    glm::vec3 sunPosition(
-        sunHorizontal * kCelestialOrbitRadius,
-        sunVertical > 0.0f ? sunVertical * kMaxSunHeight : -500.0f,
-        std::sin(sunAngle) * kCelestialOrbitRadius * 0.5f);
+    glm::vec3 sunPosition = RotateAroundY(
+        glm::vec3(
+            sunHorizontal * kCelestialOrbitRadius,
+            sunHeight > 0.0f ? sunHeight * kMaxSunHeight : -500.0f,
+            0.0f),
+        orbitHeading);
 
-    const float moonAngle = sunAngle + glm::pi<float>();
-    const float moonHorizontal = std::cos(moonAngle);
-    const float moonVertical = std::sin(moonAngle);
-    glm::vec3 moonPosition(
-        moonHorizontal * kCelestialOrbitRadius * 0.8f,
-        moonVertical > 0.0f ? moonVertical * kMaxSunHeight * kMaxMoonHeightFactor : -300.0f,
-        std::sin(moonAngle) * kCelestialOrbitRadius * 0.4f);
+    const float moonAngle = sunAngle + glm::pi<float>() + std::sin(celestialDay * 0.31f + 2.1f) * 0.22f;
+    const float moonVertical = std::sin(moonAngle) * (0.82f + 0.18f * std::sin(celestialDay * 0.43f + 2.8f));
+    const float moonHeading = orbitHeading + glm::radians(28.0f) + glm::radians(18.0f) * std::sin(celestialDay * 0.29f);
+    glm::vec3 moonPosition = RotateAroundY(
+        glm::vec3(
+            std::cos(moonAngle) * kCelestialOrbitRadius * 0.8f,
+            moonVertical > 0.0f ? moonVertical * kMaxSunHeight * kMaxMoonHeightFactor : -300.0f,
+            0.0f),
+        moonHeading);
 
     const float dayLightBlend = glm::smoothstep(-0.14f, 0.18f, sunHeight);
     const float sunWarmBlend = glm::smoothstep(-0.04f, 0.32f, sunHeight);
@@ -196,9 +218,12 @@ EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     frame.dayFactor = glm::clamp(sunHeight + 0.2f, 0.05f, 1.0f);
     frame.nightFactor = glm::clamp(-sunHeight + 0.1f, 0.0f, 1.0f);
     frame.rainIntensity = rainSmoothed;
+    frame.fogIntensity = fogSmoothed;
     frame.lightningAmount = lightningAmount;
     frame.lightningSeed = lightningSeed;
-    frame.sunDirection = glm::normalize(glm::vec3(std::cos(sunAngle), std::sin(sunAngle), std::sin(sunAngle) * 0.5f));
+    frame.sunDirection = glm::length(sunPosition) > 0.001f
+        ? glm::normalize(sunPosition)
+        : glm::vec3(0.0f, 1.0f, 0.2f);
     frame.moonPosition = moonPosition;
     frame.mainLightPosition = mainLightPosition;
     frame.mainLightColor = mainLightColor;

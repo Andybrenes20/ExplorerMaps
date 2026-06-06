@@ -9,6 +9,7 @@ uniform float sunHeight;
 uniform vec3 sunDir;
 uniform vec3 moonDir;
 uniform float rainIntensity;
+uniform float fogIntensity;
 uniform float lightningAmount;
 uniform float lightningSeed;
 uniform vec3 cameraPosition;
@@ -39,7 +40,7 @@ float noise(vec2 p) {
 float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 3; ++i) {
         v += noise(p) * a;
         p = p * 2.03 + vec2(11.7, 5.3);
         a *= 0.5;
@@ -121,6 +122,7 @@ void main() {
     vec3 sDir = normalize(sunDir);
     vec3 mDir = normalize(moonDir);
     float rain = clamp(rainIntensity, 0.0, 1.0);
+    float fog = clamp(fogIntensity, 0.0, 1.0);
     float night = clamp(blendFactor, 0.0, 1.0);
     float vertical = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
@@ -161,8 +163,10 @@ void main() {
     vec3 dayHaze = mix(vec3(0.62, 0.76, 0.92), vec3(0.98, 0.55, 0.28), dusk * 0.72);
     vec3 nightHaze = mix(vec3(0.035, 0.045, 0.075), vec3(0.025, 0.12, 0.32), rain);
     vec3 atmosphericHaze = mix(dayHaze, nightHaze, night);
-    float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34) * (0.82 + hazeNoise * 0.18);
-    sky = mix(sky, atmosphericHaze, clamp(hazeAmount, 0.0, 0.38));
+    float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34 + fog * 0.34) * (0.82 + hazeNoise * 0.18);
+    vec3 generatedFog = mix(vec3(0.64, 0.71, 0.79), vec3(0.07, 0.09, 0.13), night);
+    atmosphericHaze = mix(atmosphericHaze, generatedFog, fog * 0.64);
+    sky = mix(sky, atmosphericHaze, clamp(hazeAmount, 0.0, 0.54));
 
     // Keep the celestial bodies readable through the procedural cloud layer.
     float highSun = remap(sunHeight, 0.18, 0.82);

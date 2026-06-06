@@ -32,8 +32,10 @@
 const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 const float PLAYER_HEIGHT = 1.75f;
-const glm::vec3 PLAYER_SPAWN = glm::vec3(23.7f, 37.8f, 143.5f);
-const unsigned int SHADOW_MAP_SIZE = 1024;
+const glm::vec3 PLAYER_SPAWN = glm::vec3(304.1f, 37.8f, 143.5f);
+const float PLAYER_SPAWN_YAW = -90.0f;
+const float PLAYER_SPAWN_PITCH = 0.0f;
+const unsigned int SHADOW_MAP_SIZE = 1280;
 
 // --- VARIABLES DE BARRA DE PROGRESO ---
 float currentLoadingProgress = 0.0f;
@@ -286,6 +288,13 @@ int main() {
                     }
 
                     cameraPos = PLAYER_SPAWN;
+                    yaw = PLAYER_SPAWN_YAW;
+                    pitch = PLAYER_SPAWN_PITCH;
+                    cameraFront = glm::normalize(glm::vec3(
+                        std::cos(glm::radians(yaw)) * std::cos(glm::radians(pitch)),
+                        std::sin(glm::radians(pitch)),
+                        std::sin(glm::radians(yaw)) * std::cos(glm::radians(pitch))));
+                    firstMouse = true;
                     isFlying = false;
                     environmentAudio.StartAmbient();
                 }
@@ -341,7 +350,7 @@ int main() {
                 shadowLightSpaceMatrix = RenderDirectionalShadow(
                     shadowShader, shadowFramebuffer, environmentFrame, animatedCameraPos, cameraFront,
                     physics, cityMeshBounds, citySceneBounds.radius);
-                nextShadowUpdate = currentFrame + (1.0f / 15.0f);
+                nextShadowUpdate = currentFrame + (1.0f / 10.0f);
             }
 
             cityShader.use();
@@ -383,13 +392,6 @@ int main() {
             glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
             glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
-            if (currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
-                shadowLightSpaceMatrix = RenderDirectionalShadow(
-                    shadowShader, shadowFramebuffer, environmentFrame, cameraPos, cameraFront,
-                    physics, cityMeshBounds, citySceneBounds.radius);
-                nextShadowUpdate = currentFrame + (1.0f / 15.0f);
-            }
-
             cityShader.use();
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
@@ -639,12 +641,13 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("dayFactor", frame.dayFactor);
     shader.setFloat("nightFactor", frame.nightFactor);
     shader.setFloat("rainIntensity", frame.rainIntensity);
+    shader.setFloat("fogIntensity", frame.fogIntensity);
     shader.setFloat("sunHeight", frame.sunHeight);
     shader.setFloat("windowLightIntensity", frame.windowLightIntensity);
     shader.setFloat("cloudCoverage", frame.cloudCoverage);
     shader.setFloat("cloudSpeed", frame.cloudSpeed);
     shader.setFloat("cloudDensity", frame.cloudDensity);
-    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.30f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.55f) * 1.08f);
+    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.30f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.94f);
     shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
 
     const glm::vec3 lampColor(1.0f, 0.60f, 0.20f);
@@ -669,7 +672,7 @@ glm::mat4 RenderDirectionalShadow(
     const PhysicsWorld& physics,
     const std::vector<Optimization::MeshBounds>& meshBounds,
     float sceneRadius) {
-    const glm::vec3 shadowCenter = cameraPosition + cameraForward * 65.0f;
+    const glm::vec3 shadowCenter = cameraPosition + cameraForward * 52.0f;
     glm::vec3 directionToLight = frame.mainLightPosition - shadowCenter;
     directionToLight = glm::length(directionToLight) > 0.001f
         ? glm::normalize(directionToLight)
@@ -679,7 +682,7 @@ glm::mat4 RenderDirectionalShadow(
     const glm::vec3 lightUp = std::abs(glm::dot(directionToLight, cameraUp)) > 0.96f
         ? glm::vec3(0.0f, 0.0f, 1.0f)
         : cameraUp;
-    const glm::mat4 lightProjection = glm::ortho(-150.0f, 150.0f, -118.0f, 118.0f, 1.0f, 650.0f);
+    const glm::mat4 lightProjection = glm::ortho(-128.0f, 128.0f, -106.0f, 106.0f, 1.0f, 650.0f);
     const glm::mat4 lightView = glm::lookAt(lightPosition, shadowCenter, lightUp);
     const glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
@@ -698,7 +701,11 @@ glm::mat4 RenderDirectionalShadow(
         lightPosition,
         glm::normalize(shadowCenter - lightPosition),
         sceneRadius);
-    Optimization::DrawCityMeshes(physics.visualMeshes, meshBounds, shadowCulling);
+    Optimization::RenderSettings shadowSettings;
+    shadowSettings.maxRenderDistance = 900.0f;
+    shadowSettings.lodNearDistanceMultiplier = 4.0f;
+    shadowSettings.viewportCullPadding = 0.12f;
+    Optimization::DrawCityMeshes(physics.visualMeshes, meshBounds, shadowCulling, shadowSettings);
 
     glDisable(GL_POLYGON_OFFSET_FILL);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -720,6 +727,7 @@ void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFra
     shader.setVec3("sunDir", frame.sunDirection);
     shader.setVec3("moonDir", moonDirection);
     shader.setFloat("rainIntensity", frame.rainIntensity);
+    shader.setFloat("fogIntensity", frame.fogIntensity);
     shader.setFloat("lightningAmount", frame.lightningAmount);
     shader.setFloat("lightningSeed", frame.lightningSeed);
     shader.setVec3("cameraPosition", cameraPosition);

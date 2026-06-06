@@ -13,6 +13,7 @@ uniform float time;
 uniform float dayFactor;
 uniform float nightFactor;
 uniform float rainIntensity;
+uniform float fogIntensity;
 uniform float sunHeight;
 uniform float windowLightIntensity;
 uniform float cloudCoverage;
@@ -61,6 +62,10 @@ float smoothNoise2D(vec2 p) {
 }
 
 float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
+    if (shadowStrength <= 0.01) {
+        return 0.0;
+    }
+
     vec3 projected = FragPosLightSpace.xyz / max(FragPosLightSpace.w, 0.0001);
     projected = projected * 0.5 + 0.5;
     if (projected.z <= 0.0 || projected.z >= 1.0 ||
@@ -73,15 +78,11 @@ float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
     shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0, -1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 0.0, -1.0)).r ? 1.0 : 0.0;
     shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0, -1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0,  0.0)).r ? 1.0 : 0.0;
     shadow += projected.z - bias > texture(shadowMap, projected.xy).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0,  0.0)).r ? 1.0 : 0.0;
     shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0,  1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 0.0,  1.0)).r ? 1.0 : 0.0;
     shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0,  1.0)).r ? 1.0 : 0.0;
-    return shadow * 0.111111 * shadowStrength;
+    return clamp(shadow * 0.20 * shadowStrength, 0.0, 0.94);
 }
 
 vec3 tonemap(vec3 color) {
@@ -140,6 +141,7 @@ void main() {
     float hemi = clamp(normal.y * 0.5 + 0.5, 0.0, 1.0);
     float luma = dot(base, vec3(0.299, 0.587, 0.114));
     float rain = clamp(rainIntensity, 0.0, 1.0);
+    float fogAmount = clamp(fogIntensity, 0.0, 1.0);
     float night = clamp(nightFactor, 0.0, 1.0);
     float day = clamp(dayFactor, 0.0, 1.0);
 
@@ -191,10 +193,12 @@ void main() {
     ambientTerm += vec3(0.12, 0.10, 0.08) * groundBounce * (0.10 + day * 0.10);
     ambientTerm *= cheapOcclusion;
     vec2 cloudUv = (FragPos.xz + vec2(time * 5.2 * cloudSpeed, time * 1.7 * cloudSpeed)) * 0.008;
-    float cloudNoise = smoothNoise2D(cloudUv) * 0.68 + smoothNoise2D(cloudUv * 2.1 + 7.0) * 0.32;
+    float cloudNoise = smoothNoise2D(cloudUv);
     float cloudShadow = smoothstep(0.72 - cloudCoverage * 0.34, 0.92, cloudNoise) * day * (1.0 - rain * 0.72);
     cloudShadow *= clamp(cloudDensity * 0.22, 0.08, 0.36);
     float geometryShadow = sampleDirectionalShadow(normal, lightDir) * day * (1.0 - rain * 0.42);
+    float shadowAmbientLoss = geometryShadow * mix(0.32, 0.48, facadeMask) * (1.0 - rain * 0.40);
+    ambientTerm *= 1.0 - shadowAmbientLoss;
     vec3 directTerm = light.diffuse * directionalShape * (0.52 + day * 0.46) * (1.0 - cloudShadow) * (1.0 - geometryShadow);
     vec3 lit = albedo * (ambientTerm + directTerm);
     vec3 orientationTint = mix(vec3(0.76, 0.84, 1.0), vec3(1.0, 0.88, 0.72), sunFacing);
@@ -206,10 +210,10 @@ void main() {
     float shadowContrast = mix(0.20, 0.34, 1.0 - noonStrength) * (1.0 - rain * 0.55);
     lit *= 1.0 - shadowSide * shadowContrast;
     lit += skyBounce * shadowSide * (0.035 + golden * 0.030);
-    lit += skyBounce * geometryShadow * facadeMask * 0.035;
-    float contactWeight = geometryShadow * (0.24 + facadeMask * 0.20 + horizontalSurface * 0.12) * (1.0 - rain * 0.35);
+    lit += skyBounce * geometryShadow * facadeMask * 0.018;
+    float contactWeight = geometryShadow * (0.30 + facadeMask * 0.22 + horizontalSurface * 0.15) * (1.0 - rain * 0.35);
     lit *= 1.0 - contactWeight;
-    lit += mix(vec3(0.014, 0.018, 0.028), skyBounce * 0.10, rain) * geometryShadow;
+    lit += mix(vec3(0.008, 0.010, 0.016), skyBounce * 0.065, rain) * geometryShadow;
     lit += albedo * vec3(0.34, 0.12, 0.025) * sunFacing * golden * 0.16;
     float dryRoadSpecular = roadMask * (1.0 - rain) * 0.018;
     float materialSpecular = dryRoadSpecular + glassMask * 0.72 + metalMask * (0.16 + day * 0.28) + roadMask * rain * 0.75;
@@ -226,29 +230,55 @@ void main() {
     float moonRim = pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 2.4) * facadeMask * night;
     lit += mix(vec3(0.08, 0.11, 0.20), vec3(0.06, 0.28, 0.72), rain) * moonRim * 0.50;
 
-    for (int i = 0; i < NR_POINT_LIGHTS; ++i) {
-        lit += pointLight(pointLights[i], normal, albedo, horizontalSurface);
+    if (pointLightIntensity > 0.02) {
+        for (int i = 0; i < NR_POINT_LIGHTS; ++i) {
+            lit += pointLight(pointLights[i], normal, albedo, horizontalSurface);
+        }
     }
 
-    vec3 cell = floor(FragPos * vec3(0.055, 0.16, 0.055));
-    vec3 local = fract(FragPos * vec3(0.055, 0.16, 0.055)) - 0.5;
-    float seed = hash31(cell);
-    float band = smoothstep(0.12, 0.30, fract(FragPos.y * 0.16)) * (1.0 - smoothstep(0.72, 0.92, fract(FragPos.y * 0.16)));
-    float axisBlend = step(abs(normal.x), abs(normal.z));
-    float across = mix(local.z, local.x, axisBlend);
-    float column = 1.0 - smoothstep(0.23, 0.46, abs(across));
-    float broadFacade = facadeMask * broadSurface;
-    float pane = broadFacade * (1.0 - smoothstep(0.26, 0.66, abs(normal.y))) * max(glassMask, (1.0 - smoothstep(0.06, 0.24, luma)) * 0.58);
-    float windowMask = pane * band * column * step(0.34, seed) * smoothstep(0.04, 0.68, windowLightIntensity);
-    vec3 windowColor = mix(vec3(1.0, 0.56, 0.24), vec3(1.0, 0.88, 0.58), hash31(cell + 17.0));
-    vec3 windowGlow = windowColor * windowMask * (0.92 + night * 1.55 + rain * 0.35);
-    lit += windowGlow;
-    lit += windowColor * pane * step(0.47, seed) * exp(-(local.y * local.y) * 20.0) * windowLightIntensity * 0.012;
+    float cleanRoad = roadMask * (1.0 - roadPaintMask);
+    if (night > 0.02) {
+        // Cheap city-wide lighting: warm pools on streets and soft bounce on nearby facades.
+        const float urbanGridSize = 24.0;
+        vec2 urbanCell = floor(FragPos.xz / urbanGridSize);
+        vec2 urbanLocal = fract(FragPos.xz / urbanGridSize) - 0.5;
+        float urbanSeed = hash31(vec3(urbanCell, 19.0));
+        vec2 lampOffset = vec2(
+            hash31(vec3(urbanCell, 31.0)) - 0.5,
+            hash31(vec3(urbanCell, 47.0)) - 0.5) * 0.24;
+        float lampDistance = length(urbanLocal - lampOffset);
+        float lampPool = exp(-lampDistance * lampDistance * 15.0);
+        lampPool *= smoothstep(0.24, 0.52, urbanSeed) * night * pointLightIntensity;
+        float lampVariation = mix(0.76, 1.12, hash31(vec3(urbanCell, 73.0)));
+        vec3 urbanWarm = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.76, 0.38), urbanSeed) * lampVariation;
+        float roadPool = lampPool * cleanRoad;
+        float facadeBounce = lampPool * facadeMask * (1.0 - smoothstep(3.0, 34.0, FragPos.y)) * 0.34;
+        lit += urbanWarm * roadPool * (0.24 + rain * 0.48);
+        lit += urbanWarm * albedo * facadeBounce * 0.24;
+    }
 
-    float neon = saturatedMask(base) * verticalSurface * night;
-    vec3 neonColor = base * base * (1.4 + rain * 0.5);
-    lit += neonColor * neon * (0.85 + rain * 0.45);
-    lit += (windowGlow + neonColor * neon) * roadMask * rain * (0.20 + pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0) * 0.45);
+    if (windowLightIntensity > 0.01 || night > 0.02) {
+        vec3 cell = floor(FragPos * vec3(0.055, 0.16, 0.055));
+        vec3 local = fract(FragPos * vec3(0.055, 0.16, 0.055)) - 0.5;
+        float seed = hash31(cell);
+        float band = smoothstep(0.12, 0.30, fract(FragPos.y * 0.16)) * (1.0 - smoothstep(0.72, 0.92, fract(FragPos.y * 0.16)));
+        float axisBlend = step(abs(normal.x), abs(normal.z));
+        float across = mix(local.z, local.x, axisBlend);
+        float column = 1.0 - smoothstep(0.23, 0.46, abs(across));
+        float broadFacade = facadeMask * broadSurface;
+        float pane = broadFacade * (1.0 - smoothstep(0.26, 0.66, abs(normal.y))) * max(glassMask, (1.0 - smoothstep(0.06, 0.24, luma)) * 0.58);
+        float windowMask = pane * band * column * step(0.34, seed) * smoothstep(0.04, 0.68, windowLightIntensity);
+        vec3 windowColor = mix(vec3(1.0, 0.56, 0.24), vec3(1.0, 0.88, 0.58), hash31(cell + 17.0));
+        vec3 windowGlow = windowColor * windowMask * (0.92 + night * 1.55 + rain * 0.35);
+        float neon = saturatedMask(base) * verticalSurface * night;
+        vec3 neonColor = base * base * (1.4 + rain * 0.5);
+        lit += windowGlow;
+        lit += windowColor * pane * step(0.47, seed) * exp(-(local.y * local.y) * 20.0) * windowLightIntensity * 0.012;
+        lit += neonColor * neon * (0.85 + rain * 0.45);
+        lit += windowColor * cleanRoad * rain * night * (0.018 + windowLightIntensity * 0.028) *
+            (0.55 + 0.45 * sin(FragPos.x * 0.20 + FragPos.z * 0.13));
+        lit += (windowGlow + neonColor * neon) * cleanRoad * rain * (0.20 + pow(1.0 - clamp(dot(normal, viewDir), 0.0, 1.0), 3.0) * 0.45);
+    }
 
     // Road markings are painted surfaces, not lamps or polished materials.
     vec3 mattePaint = base * (
@@ -261,18 +291,24 @@ void main() {
     vec3 viewDelta = viewPos - FragPos;
     float viewDistance = length(viewDelta);
     float flatDistance = length(viewDelta.xz);
-    float fogDensity = mix(0.00028, 0.00052, night) + rain * 0.00072;
+    float fogDensity = mix(0.00028, 0.00052, night) + rain * 0.00072 + fogAmount * 0.00135;
     float distanceFog = 1.0 - exp(-viewDistance * fogDensity);
-    distanceFog = clamp(distanceFog * distanceFog * mix(0.82, 1.28, night + rain * 0.35), 0.0, mix(0.38, 0.62, night) + rain * 0.14);
+    distanceFog = clamp(distanceFog * distanceFog * mix(0.82, 1.28, night + rain * 0.35), 0.0, mix(0.38, 0.62, night) + rain * 0.14 + fogAmount * 0.16);
 
     float lowAltitude = exp(-max(FragPos.y - 12.0, 0.0) * 0.030);
-    float streetHaze = smoothstep(38.0, 260.0, flatDistance) * lowAltitude * (0.025 + night * 0.035 + rain * 0.22);
-    float hazeVariation = 0.86 + 0.14 * sin(FragPos.x * 0.018 + FragPos.z * 0.013 + time * 0.08);
+    float fogBank = fogAmount > 0.01
+        ? smoothNoise2D(FragPos.xz * 0.006 + vec2(time * 0.018, time * 0.006))
+        : 0.0;
+    fogBank = smoothstep(0.24, 0.78, fogBank) * fogAmount;
+    float streetHaze = smoothstep(28.0, 240.0, flatDistance) * lowAltitude * (0.025 + night * 0.035 + rain * 0.22 + fogBank * 0.30);
+    float hazeVariation = 0.84 + 0.16 * sin(FragPos.x * 0.018 + FragPos.z * 0.013 + time * 0.08);
     distanceFog = clamp(distanceFog + streetHaze * hazeVariation, 0.0, 0.76);
     vec3 fogDay = mix(vec3(0.76, 0.84, 0.93), vec3(0.96, 0.70, 0.45), golden * 0.55);
     vec3 fogNight = mix(vec3(0.045, 0.052, 0.072), vec3(0.025, 0.075, 0.18), rain);
     vec3 fogRain = vec3(0.29, 0.34, 0.40);
+    vec3 generatedFog = mix(vec3(0.64, 0.70, 0.76), vec3(0.095, 0.115, 0.15), night);
     vec3 fog = mix(mix(fogDay, fogNight, night), fogRain, rain * 0.62);
+    fog = mix(fog, generatedFog, fogAmount * 0.62);
     fog += mix(vec3(0.006, 0.008, 0.014), vec3(0.018, 0.055, 0.13), rain) * night;
     lit = mix(lit, fog, distanceFog);
 
