@@ -368,15 +368,15 @@ void EnvironmentSystem::UpdateLightning(float currentFrame) {
     }
 
     if (nextLightningTime <= 0.01f) {
-        nextLightningTime = currentFrame + 0.35f;
+        nextLightningTime = currentFrame + 3.0f + LightningNoise(currentFrame + 9.0f) * 4.0f;
     }
 
     if (currentFrame >= nextLightningTime) {
         lightningStart = currentFrame;
-        lightningDuration = 0.36f + LightningNoise(currentFrame + 3.7f) * 0.24f;
-        lightningStrength = 0.90f + rainSmoothed * 0.55f;
+        lightningDuration = 0.28f + LightningNoise(currentFrame + 3.7f) * 0.20f;
+        lightningStrength = 0.56f + rainSmoothed * 0.36f;
         lightningSeed = LightningNoise(currentFrame + lightningStrength * 17.0f);
-        nextLightningTime = currentFrame + 0.75f + LightningNoise(currentFrame + 21.0f) * 1.15f;
+        nextLightningTime = currentFrame + 5.5f + LightningNoise(currentFrame + 21.0f) * 7.5f;
         lightningTriggered = true;
     }
 }

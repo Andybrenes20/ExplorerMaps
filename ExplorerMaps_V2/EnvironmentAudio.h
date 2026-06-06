@@ -19,6 +19,7 @@ private:
     ma_sound cityDay{};
     ma_sound cityNight{};
     ma_sound thunder{};
+    ma_sound rain{};
     bool initialized = false;
     bool ambientStarted = false;
 };

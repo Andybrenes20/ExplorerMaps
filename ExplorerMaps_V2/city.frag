@@ -4,8 +4,10 @@ out vec4 FragColor;
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
+in vec4 FragPosLightSpace;
 
 uniform sampler2D texture_diffuse1;
+uniform sampler2D shadowMap;
 uniform vec3 viewPos;
 uniform float time;
 uniform float dayFactor;
@@ -13,6 +15,11 @@ uniform float nightFactor;
 uniform float rainIntensity;
 uniform float sunHeight;
 uniform float windowLightIntensity;
+uniform float cloudCoverage;
+uniform float cloudSpeed;
+uniform float cloudDensity;
+uniform vec3 celestialLightPosition;
+uniform float shadowStrength;
 
 struct DirLight {
     vec3 direction;
@@ -40,6 +47,41 @@ float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
+}
+
+float smoothNoise2D(vec2 p) {
+    vec2 cell = floor(p);
+    vec2 local = fract(p);
+    local = local * local * (3.0 - 2.0 * local);
+    float a = hash31(vec3(cell, 3.0));
+    float b = hash31(vec3(cell + vec2(1.0, 0.0), 3.0));
+    float c = hash31(vec3(cell + vec2(0.0, 1.0), 3.0));
+    float d = hash31(vec3(cell + vec2(1.0, 1.0), 3.0));
+    return mix(mix(a, b, local.x), mix(c, d, local.x), local.y);
+}
+
+float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
+    vec3 projected = FragPosLightSpace.xyz / max(FragPosLightSpace.w, 0.0001);
+    projected = projected * 0.5 + 0.5;
+    if (projected.z <= 0.0 || projected.z >= 1.0 ||
+        projected.x <= 0.0 || projected.x >= 1.0 ||
+        projected.y <= 0.0 || projected.y >= 1.0) {
+        return 0.0;
+    }
+
+    float bias = max(0.0012 * (1.0 - dot(normal, lightDir)), 0.00022);
+    vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+    float shadow = 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0, -1.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 0.0, -1.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0, -1.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0,  0.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0,  0.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0,  1.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 0.0,  1.0)).r ? 1.0 : 0.0;
+    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0,  1.0)).r ? 1.0 : 0.0;
+    return shadow * 0.111111 * shadowStrength;
 }
 
 vec3 tonemap(vec3 color) {
@@ -91,7 +133,8 @@ void main() {
     float architecturalSurface = 1.0 - smoothstep(0.78, 0.98, abs(smoothNormal.y));
     vec3 normal = normalize(mix(smoothNormal, geometricNormal, architecturalSurface * 0.58));
     vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 lightDir = normalize(-light.direction);
+    vec3 positionalLightDir = celestialLightPosition - FragPos;
+    vec3 lightDir = length(positionalLightDir) > 0.001 ? normalize(positionalLightDir) : normalize(-light.direction);
     vec3 halfDir = normalize(lightDir + viewDir);
     float lambert = max(dot(normal, lightDir), 0.0);
     float hemi = clamp(normal.y * 0.5 + 0.5, 0.0, 1.0);
@@ -138,25 +181,35 @@ void main() {
     float sideFacing = dot(normal.xz, lightDir.xz);
     float sunFacing = smoothstep(-0.12, 0.72, sideFacing) * facadeMask;
     float directionalShape = mix(pow(lambert, 0.82), lambert, noonStrength);
-    directionalShape *= mix(0.82, 1.18, sunFacing * sunAboveHorizon);
+    directionalShape *= mix(0.72, 1.30, sunFacing * sunAboveHorizon);
     float groundBounce = clamp(-normal.y * 0.5 + 0.5, 0.0, 1.0);
     float lowerFacade = facadeMask * (1.0 - smoothstep(4.0, 44.0, FragPos.y));
     float downwardCrease = smoothstep(0.12, 0.82, -normal.y);
     float cheapOcclusion = clamp(1.0 - textureEdge * 0.68 - lowerFacade * 0.10 - downwardCrease * 0.14, 0.54, 1.0);
-    vec3 ambientTerm = (light.ambient * (0.72 + hemi * 0.42) + skyBounce * (0.11 + hemi * 0.16));
+    float dayFacadeAmbient = mix(1.0, 0.58 + hemi * 0.20, facadeMask * day * (1.0 - rain * 0.45));
+    vec3 ambientTerm = (light.ambient * (0.72 + hemi * 0.42) + skyBounce * (0.11 + hemi * 0.16)) * dayFacadeAmbient;
     ambientTerm += vec3(0.12, 0.10, 0.08) * groundBounce * (0.10 + day * 0.10);
     ambientTerm *= cheapOcclusion;
-    vec3 directTerm = light.diffuse * directionalShape * (0.48 + day * 0.30);
+    vec2 cloudUv = (FragPos.xz + vec2(time * 5.2 * cloudSpeed, time * 1.7 * cloudSpeed)) * 0.008;
+    float cloudNoise = smoothNoise2D(cloudUv) * 0.68 + smoothNoise2D(cloudUv * 2.1 + 7.0) * 0.32;
+    float cloudShadow = smoothstep(0.72 - cloudCoverage * 0.34, 0.92, cloudNoise) * day * (1.0 - rain * 0.72);
+    cloudShadow *= clamp(cloudDensity * 0.22, 0.08, 0.36);
+    float geometryShadow = sampleDirectionalShadow(normal, lightDir) * day * (1.0 - rain * 0.42);
+    vec3 directTerm = light.diffuse * directionalShape * (0.52 + day * 0.46) * (1.0 - cloudShadow) * (1.0 - geometryShadow);
     vec3 lit = albedo * (ambientTerm + directTerm);
     vec3 orientationTint = mix(vec3(0.76, 0.84, 1.0), vec3(1.0, 0.88, 0.72), sunFacing);
     lit *= mix(vec3(1.0), orientationTint, facadeMask * day * (0.055 + golden * 0.10));
     lit += albedo * light.diffuse * concreteMask * sunFacing * textureEdge * 0.12;
     lit += albedo * mix(vec3(0.018, 0.025, 0.055), vec3(0.025, 0.12, 0.34), rain) * facadeMask * night * (0.55 + hemi * 0.45);
     lit += albedo * vec3(0.38, 0.13, 0.025) * directionalShape * golden * 0.34;
-    float shadowSide = (1.0 - sunFacing) * facadeMask * sunAboveHorizon * day;
-    float shadowContrast = mix(0.12, 0.24, 1.0 - noonStrength) * (1.0 - rain * 0.55);
+    float shadowSide = (1.0 - lambert) * facadeMask * sunAboveHorizon * day;
+    float shadowContrast = mix(0.20, 0.34, 1.0 - noonStrength) * (1.0 - rain * 0.55);
     lit *= 1.0 - shadowSide * shadowContrast;
-    lit += skyBounce * shadowSide * (0.055 + golden * 0.045);
+    lit += skyBounce * shadowSide * (0.035 + golden * 0.030);
+    lit += skyBounce * geometryShadow * facadeMask * 0.035;
+    float contactWeight = geometryShadow * (0.24 + facadeMask * 0.20 + horizontalSurface * 0.12) * (1.0 - rain * 0.35);
+    lit *= 1.0 - contactWeight;
+    lit += mix(vec3(0.014, 0.018, 0.028), skyBounce * 0.10, rain) * geometryShadow;
     lit += albedo * vec3(0.34, 0.12, 0.025) * sunFacing * golden * 0.16;
     float dryRoadSpecular = roadMask * (1.0 - rain) * 0.018;
     float materialSpecular = dryRoadSpecular + glassMask * 0.72 + metalMask * (0.16 + day * 0.28) + roadMask * rain * 0.75;

@@ -33,6 +33,7 @@ const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 const float PLAYER_HEIGHT = 1.75f;
 const glm::vec3 PLAYER_SPAWN = glm::vec3(23.7f, 37.8f, 143.5f);
+const unsigned int SHADOW_MAP_SIZE = 1024;
 
 // --- VARIABLES DE BARRA DE PROGRESO ---
 float currentLoadingProgress = 0.0f;
@@ -75,6 +76,7 @@ bool processFlightInput(GLFWwindow* window);
 void UpdateWindowTitle(GLFWwindow* window, float currentFrame);
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame);
 void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame);
+glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -137,6 +139,27 @@ int main() {
     EnvironmentSystem environmentSystem;
     Shader cityShader("city.vert", "city.frag");
     Shader skyboxShader("skybox.vert", "skybox.frag");
+    Shader shadowShader("shadow_depth.vert", "shadow_depth.frag");
+
+    unsigned int shadowFramebuffer = 0;
+    unsigned int shadowTexture = 0;
+    glGenFramebuffers(1, &shadowFramebuffer);
+    glGenTextures(1, &shadowTexture);
+    glBindTexture(GL_TEXTURE_2D, shadowTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    const float shadowBorder[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, shadowBorder);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFramebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowTexture, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glm::mat4 shadowLightSpaceMatrix(1.0f);
+    float nextShadowUpdate = 0.0f;
 
     static std::future<bool> loadFuture;
 
@@ -314,12 +337,22 @@ int main() {
             const glm::vec3 animatedCameraPos = cameraPos + movementAnimation.GetCameraOffset();
             glm::mat4 view = glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
+            if (currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
+                shadowLightSpaceMatrix = RenderDirectionalShadow(
+                    shadowShader, shadowFramebuffer, environmentFrame, animatedCameraPos, cameraFront,
+                    physics, cityMeshBounds, citySceneBounds.radius);
+                nextShadowUpdate = currentFrame + (1.0f / 15.0f);
+            }
 
             cityShader.use();
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
             cityShader.setMat4("model", model);
+            cityShader.setMat4("lightSpaceMatrix", shadowLightSpaceMatrix);
             UploadCityEnvironment(cityShader, environmentFrame, animatedCameraPos, currentFrame);
+            cityShader.setInt("shadowMap", 1);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shadowTexture);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
                 projection,
@@ -350,12 +383,22 @@ int main() {
             glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
             glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
+            if (currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
+                shadowLightSpaceMatrix = RenderDirectionalShadow(
+                    shadowShader, shadowFramebuffer, environmentFrame, cameraPos, cameraFront,
+                    physics, cityMeshBounds, citySceneBounds.radius);
+                nextShadowUpdate = currentFrame + (1.0f / 15.0f);
+            }
 
             cityShader.use();
             cityShader.setMat4("projection", projection);
             cityShader.setMat4("view", view);
             cityShader.setMat4("model", model);
+            cityShader.setMat4("lightSpaceMatrix", shadowLightSpaceMatrix);
             UploadCityEnvironment(cityShader, environmentFrame, cameraPos, currentFrame);
+            cityShader.setInt("shadowMap", 1);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shadowTexture);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
                 projection,
@@ -418,6 +461,8 @@ int main() {
 
     glDeleteVertexArrays(1, &skyboxVAO);
     glDeleteBuffers(1, &skyboxVBO);
+    glDeleteFramebuffers(1, &shadowFramebuffer);
+    glDeleteTextures(1, &shadowTexture);
 
     for (const auto& mesh : physics.visualMeshes) {
         glDeleteVertexArrays(1, &mesh.VAO);
@@ -586,6 +631,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
     shader.setVec3("viewPos", viewPosition);
     shader.setVec3("light.direction", frame.activeLightDir);
+    shader.setVec3("celestialLightPosition", frame.mainLightPosition);
     shader.setVec3("light.ambient", frame.ambient);
     shader.setVec3("light.diffuse", frame.diffuse);
     shader.setVec3("light.specular", frame.specular);
@@ -595,6 +641,10 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("rainIntensity", frame.rainIntensity);
     shader.setFloat("sunHeight", frame.sunHeight);
     shader.setFloat("windowLightIntensity", frame.windowLightIntensity);
+    shader.setFloat("cloudCoverage", frame.cloudCoverage);
+    shader.setFloat("cloudSpeed", frame.cloudSpeed);
+    shader.setFloat("cloudDensity", frame.cloudDensity);
+    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.30f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.55f) * 1.08f);
     shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
 
     const glm::vec3 lampColor(1.0f, 0.60f, 0.20f);
@@ -608,6 +658,52 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
         shader.setFloat(name + ".linear", 0.09f);
         shader.setFloat(name + ".quadratic", 0.032f);
     }
+}
+
+glm::mat4 RenderDirectionalShadow(
+    Shader& shader,
+    unsigned int framebuffer,
+    const EnvironmentFrame& frame,
+    const glm::vec3& cameraPosition,
+    const glm::vec3& cameraForward,
+    const PhysicsWorld& physics,
+    const std::vector<Optimization::MeshBounds>& meshBounds,
+    float sceneRadius) {
+    const glm::vec3 shadowCenter = cameraPosition + cameraForward * 65.0f;
+    glm::vec3 directionToLight = frame.mainLightPosition - shadowCenter;
+    directionToLight = glm::length(directionToLight) > 0.001f
+        ? glm::normalize(directionToLight)
+        : glm::vec3(0.35f, 0.75f, -0.45f);
+
+    const glm::vec3 lightPosition = shadowCenter + directionToLight * 320.0f;
+    const glm::vec3 lightUp = std::abs(glm::dot(directionToLight, cameraUp)) > 0.96f
+        ? glm::vec3(0.0f, 0.0f, 1.0f)
+        : cameraUp;
+    const glm::mat4 lightProjection = glm::ortho(-150.0f, 150.0f, -118.0f, 118.0f, 1.0f, 650.0f);
+    const glm::mat4 lightView = glm::lookAt(lightPosition, shadowCenter, lightUp);
+    const glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+    glViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.6f, 3.0f);
+
+    shader.use();
+    shader.setMat4("model", glm::mat4(1.0f));
+    shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+    const Optimization::FrameCulling shadowCulling = Optimization::BuildFrameCulling(
+        lightProjection,
+        lightView,
+        lightPosition,
+        glm::normalize(shadowCenter - lightPosition),
+        sceneRadius);
+    Optimization::DrawCityMeshes(physics.visualMeshes, meshBounds, shadowCulling);
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+    return lightSpaceMatrix;
 }
 
 void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame) {

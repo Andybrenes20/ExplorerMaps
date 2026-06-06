@@ -6,10 +6,12 @@ layout (location = 2) in vec3 aNormal; // Las normales para la luz
 out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoord;
+out vec4 FragPosLightSpace;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 lightSpaceMatrix;
 
 void main() {
     // Posición en el mundo 3D
@@ -20,6 +22,7 @@ void main() {
     
     // Tu línea de seguridad que evita el bug del "Doble Volteo" de texturas
     TexCoord = vec2(aTexCoord.x, 1.0 - aTexCoord.y); 
+    FragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
     
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
