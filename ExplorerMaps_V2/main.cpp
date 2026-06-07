@@ -575,10 +575,10 @@ bool processFlightInput(GLFWwindow* window) {
     }
 
     glm::vec3 flyDirection(0.0f);
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) flyDirection += cameraFront;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) flyDirection -= cameraFront;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) flyDirection -= right;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) flyDirection += right;
+    if ((glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)) flyDirection += cameraFront;
+    if ((glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)) flyDirection -= cameraFront;
+    if ((glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)) flyDirection -= right;
+    if ((glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)) flyDirection += right;
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) flyDirection += cameraUp;
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) flyDirection -= cameraUp;
 

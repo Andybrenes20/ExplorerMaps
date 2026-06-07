@@ -53,7 +53,10 @@ namespace GameplayInput {
         return glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
             glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
             glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
-            glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ||
+            glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ||
             std::abs(gamepad.leftX) > 0.01f ||
             std::abs(gamepad.leftY) > 0.01f ||
             gamepad.rightTrigger > 0.05f;
@@ -79,10 +82,10 @@ namespace GameplayInput {
         }
 
         glm::vec3 moveDir(0.0f);
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) moveDir += frontFlat;
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) moveDir -= frontFlat;
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) moveDir -= rightFlat;
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) moveDir += rightFlat;
+        if ((glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)) moveDir += frontFlat;
+        if ((glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)) moveDir -= frontFlat;
+        if ((glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)) moveDir -= rightFlat;
+        if ((glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)) moveDir += rightFlat;
 
         moveDir += rightFlat * gamepad.leftX;
         moveDir += frontFlat * -gamepad.leftY;
