@@ -52,6 +52,9 @@ public:
     void DrawPauseControls();
     bool IsMenuOpen() const;
     bool ConsumeLightningEvent();
+    void SetMode(EnvironmentMode newMode);
+    EnvironmentMode GetMode() const;
+    void CloseMenu();
 
 private:
     EnvironmentMode mode = EnvironmentMode::Auto;

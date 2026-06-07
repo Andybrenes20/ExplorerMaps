@@ -57,6 +57,12 @@
     <ClInclude Include="InteractionReticle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MainMenu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LoadingScreen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="EnvironmentSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -99,6 +105,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="InteractionReticle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MainMenu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LoadingScreen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="EnvironmentSystem.cpp">

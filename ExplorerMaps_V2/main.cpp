@@ -26,6 +26,8 @@
 #include "EnvironmentSystem.h"
 #include "EnvironmentAudio.h"
 #include "WeatherOverlay.h"
+#include "MainMenu.h"
+#include "LoadingScreen.h"
 #include "Shader.h"
 
 // --- CONFIGURACIÓN GLOBAL ---
@@ -51,8 +53,9 @@ bool isFlying = false;
 bool flyToggleWasPressed = false;
 
 // --- MÁQUINA DE ESTADOS DE JUEGO ---
-enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE };
+enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE, STATE_RETURNING_MENU };
 GameState currentState = STATE_MENU;
+float returnToMenuStartedAt = 0.0f;
 
 // --- SISTEMA DE LUCES URBANAS ---
 glm::vec3 farolesPos[4]; // Posiciones de los faroles
@@ -128,6 +131,12 @@ int main() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImGui::StyleColorsDark();
+    MainMenu mainMenu;
+    LoadingScreen loadingScreen;
+    if (!mainMenu.Initialize()) {
+        std::cout << "Advertencia: No se pudieron cargar los fondos del menu." << std::endl;
+    }
+    loadingScreen.Initialize();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -201,30 +210,13 @@ int main() {
             glClearColor(0.08f, 0.08f, 0.12f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            ImGui::SetNextWindowPos(ImVec2(0, 0));
-            ImGui::SetNextWindowSize(ImVec2(SCR_WIDTH, SCR_HEIGHT));
-            ImGui::Begin("MainMenu", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground);
-
-            ImGui::SetCursorPosY(150);
-            ImGui::SetWindowFontScale(3.0f);
-            float tituloWidth = ImGui::CalcTextSize("EXPLORER MAPS").x;
-            ImGui::SetCursorPosX((SCR_WIDTH - tituloWidth) * 0.5f);
-            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "EXPLORER MAPS");
-
-            ImGui::SetWindowFontScale(1.5f);
-            ImGui::SetCursorPosY(350);
-            ImGui::SetCursorPosX((SCR_WIDTH - 200) * 0.5f);
-            if (ImGui::Button("INICIAR MUNDO", ImVec2(200, 50))) {
+            const MainMenuAction menuAction = mainMenu.Draw(currentFrame);
+            if (menuAction == MainMenuAction::Start) {
                 currentState = STATE_LOADING;
             }
-
-            ImGui::SetCursorPosY(420);
-            ImGui::SetCursorPosX((SCR_WIDTH - 200) * 0.5f);
-            if (ImGui::Button("CERRAR PROGRAMA", ImVec2(200, 50))) {
+            else if (menuAction == MainMenuAction::Quit) {
                 glfwSetWindowShouldClose(window, true);
             }
-
-            ImGui::End();
             break;
         }
 
@@ -237,21 +229,7 @@ int main() {
                 loadingStarted = true;
             }
 
-            ImGui::SetNextWindowPos(ImVec2(0, 0));
-            ImGui::SetNextWindowSize(ImVec2(SCR_WIDTH, SCR_HEIGHT));
-            ImGui::Begin("LoadingScreen", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground);
-
-            ImGui::SetCursorPosY(300);
-            ImGui::SetWindowFontScale(2.0f);
-            float textoWidth = ImGui::CalcTextSize("CARGANDO EXPLORERMAPS...").x;
-            ImGui::SetCursorPosX((SCR_WIDTH - textoWidth) * 0.5f);
-            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "CARGANDO EXPLORERMAPS...");
-
-            ImGui::SetCursorPosY(380);
-            ImGui::SetCursorPosX((SCR_WIDTH - 600) * 0.5f);
-            ImGui::ProgressBar(currentLoadingProgress, ImVec2(600, 30), "PREPARANDO EL MAPA...");
-
-            ImGui::End();
+            loadingScreen.Draw(currentLoadingProgress, currentFrame);
 
             if (loadFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
                 bool exito = loadFuture.get();
@@ -378,7 +356,7 @@ int main() {
                 static_cast<float>(SCR_HEIGHT),
                 gamepad.interactDown || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
             WeatherOverlay::Draw(environmentFrame, currentFrame, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
-            environmentSystem.DrawMenu();
+            mainMenu.DrawEnvironmentMenu(environmentSystem);
             break;
         }
 
@@ -413,32 +391,28 @@ int main() {
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, cameraPos, currentFrame);
 
             // --- INTERFAZ DEL MENÚ DE PAUSA ---
-            ImGui::SetNextWindowPos(ImVec2(SCR_WIDTH * 0.35f, SCR_HEIGHT * 0.25f), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(400, 320), ImGuiCond_Always);
-
-            ImGui::Begin("MENU DE PAUSA", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-
-            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "--- CONTROL AMBIENTAL ---");
-            ImGui::Separator();
-
-            environmentSystem.DrawPauseControls();
-
-            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-
-            if (ImGui::Button("REGRESAR AL JUEGO", ImVec2(380, 40))) {
+            const MainMenuAction pauseAction = mainMenu.DrawPause(environmentSystem);
+            if (pauseAction == MainMenuAction::Resume) {
                 currentState = STATE_RUNNING;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 firstMouse = true;
             }
-            if (ImGui::Button("SALIR AL MENU PRINCIPAL", ImVec2(380, 40))) {
+            else if (pauseAction == MainMenuAction::ReturnToMainMenu) {
                 environmentAudio.StopAmbient();
-                // Reiniciamos variables de carga para permitir re-entrada limpia
                 loadingStarted = false;
                 currentLoadingProgress = 0.0f;
+                returnToMenuStartedAt = currentFrame;
+                currentState = STATE_RETURNING_MENU;
+            }
+            break;
+        }
+
+        case STATE_RETURNING_MENU: {
+            const float returnProgress = glm::clamp((currentFrame - returnToMenuStartedAt) / 1.25f, 0.0f, 1.0f);
+            loadingScreen.DrawReturnToMenu(returnProgress);
+            if (returnProgress >= 1.0f) {
                 currentState = STATE_MENU;
             }
-
-            ImGui::End();
             break;
         }
         }
@@ -453,6 +427,7 @@ int main() {
 
     // 5. LIMPIEZA
     environmentAudio.Shutdown();
+    mainMenu.Shutdown();
     ma_sound_uninit(&sfxPasos);
     ma_sound_uninit(&sfxCorrer);
     ma_engine_uninit(&audioEngine);
@@ -480,7 +455,7 @@ int main() {
 
 void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad) {
     // --- CONTROL DE PAUSA CON ESCAPE ---
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || gamepad.pauseDown) {
         if (currentState == STATE_RUNNING) {
             currentState = STATE_PAUSE;
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Muestra el cursor para ImGui

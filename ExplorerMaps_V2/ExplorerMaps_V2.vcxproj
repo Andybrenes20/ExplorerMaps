@@ -126,6 +126,7 @@
       <Command>xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
 xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
+xcopy /E /I /Y "$(ProjectDir)Image" "$(OutDir)Image"
 xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -153,6 +154,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
       <Command>xcopy /E /I /Y "$(ProjectDir)modelos" "$(OutDir)modelos"
 xcopy /E /I /Y "$(ProjectDir)Texturas" "$(OutDir)Texturas"
 xcopy /E /I /Y "$(ProjectDir)Sonidos" "$(OutDir)Sonidos"
+xcopy /E /I /Y "$(ProjectDir)Image" "$(OutDir)Image"
 xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -164,6 +166,8 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClInclude Include="imgui\imgui_impl_opengl3.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="InteractionReticle.h" />
+    <ClInclude Include="MainMenu.h" />
+    <ClInclude Include="LoadingScreen.h" />
     <ClInclude Include="EnvironmentAudio.h" />
     <ClInclude Include="EnvironmentSystem.h" />
     <ClInclude Include="GameplayInput.h" />
@@ -181,6 +185,8 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClCompile Include="imgui\imgui_impl_opengl3.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="InteractionReticle.cpp" />
+    <ClCompile Include="MainMenu.cpp" />
+    <ClCompile Include="LoadingScreen.cpp" />
     <ClCompile Include="EnvironmentAudio.cpp" />
     <ClCompile Include="EnvironmentSystem.cpp" />
     <ClCompile Include="GameplayInput.cpp" />

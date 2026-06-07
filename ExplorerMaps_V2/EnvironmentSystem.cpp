@@ -310,6 +310,18 @@ bool EnvironmentSystem::ConsumeLightningEvent() {
     return triggered;
 }
 
+void EnvironmentSystem::SetMode(EnvironmentMode newMode) {
+    mode = newMode;
+}
+
+EnvironmentMode EnvironmentSystem::GetMode() const {
+    return mode;
+}
+
+void EnvironmentSystem::CloseMenu() {
+    menuOpen = false;
+}
+
 void EnvironmentSystem::HandleControls(GLFWwindow* window, const GameplayGamepadInput& gamepad) {
     const bool f3Down = glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS;
     const bool rDown = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
@@ -335,7 +347,7 @@ void EnvironmentSystem::HandleControls(GLFWwindow* window, const GameplayGamepad
         }
     }
 
-    if ((f3Down && !f3WasDown) || (startDown && !startWasDown)) {
+    if (f3Down && !f3WasDown) {
         menuOpen = !menuOpen;
         menuSelection = SelectionFromMode(mode);
     }
