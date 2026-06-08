@@ -74,15 +74,20 @@ float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
         return 0.0;
     }
 
-    float bias = max(0.0012 * (1.0 - dot(normal, lightDir)), 0.00022);
+    float normalLight = max(dot(normal, lightDir), 0.0);
+    float bias = mix(0.00105, 0.00018, normalLight);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0, -1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0, -1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2(-1.0,  1.0)).r ? 1.0 : 0.0;
-    shadow += projected.z - bias > texture(shadowMap, projected.xy + texel * vec2( 1.0,  1.0)).r ? 1.0 : 0.0;
-    return clamp(shadow * 0.20 * shadowStrength, 0.0, 0.94);
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            float closestDepth = texture(shadowMap, projected.xy + vec2(x, y) * texel).r;
+            shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
+        }
+    }
+
+    float edgeDistance = min(min(projected.x, projected.y), min(1.0 - projected.x, 1.0 - projected.y));
+    float edgeFade = smoothstep(0.0, 0.035, edgeDistance);
+    return clamp((shadow / 9.0) * shadowStrength * edgeFade, 0.0, 0.97);
 }
 
 vec3 tonemap(vec3 color) {
@@ -197,7 +202,9 @@ void main() {
     float cloudShadow = smoothstep(0.72 - cloudCoverage * 0.34, 0.92, cloudNoise) * day * (1.0 - rain * 0.72);
     cloudShadow *= clamp(cloudDensity * 0.22, 0.08, 0.36);
     float geometryShadow = sampleDirectionalShadow(normal, lightDir) * day * (1.0 - rain * 0.42);
-    float shadowAmbientLoss = geometryShadow * mix(0.32, 0.48, facadeMask) * (1.0 - rain * 0.40);
+    float streetShadow = smoothstep(0.04, 0.88, geometryShadow) * horizontalSurface;
+    geometryShadow = clamp(geometryShadow + streetShadow * 0.12, 0.0, 0.98);
+    float shadowAmbientLoss = geometryShadow * mix(0.52, 0.48, facadeMask) * (1.0 - rain * 0.40);
     ambientTerm *= 1.0 - shadowAmbientLoss;
     vec3 directTerm = light.diffuse * directionalShape * (0.52 + day * 0.46) * (1.0 - cloudShadow) * (1.0 - geometryShadow);
     vec3 lit = albedo * (ambientTerm + directTerm);
@@ -211,9 +218,9 @@ void main() {
     lit *= 1.0 - shadowSide * shadowContrast;
     lit += skyBounce * shadowSide * (0.035 + golden * 0.030);
     lit += skyBounce * geometryShadow * facadeMask * 0.018;
-    float contactWeight = geometryShadow * (0.30 + facadeMask * 0.22 + horizontalSurface * 0.15) * (1.0 - rain * 0.35);
+    float contactWeight = geometryShadow * (0.30 + facadeMask * 0.22 + horizontalSurface * 0.28) * (1.0 - rain * 0.35);
     lit *= 1.0 - contactWeight;
-    lit += mix(vec3(0.008, 0.010, 0.016), skyBounce * 0.065, rain) * geometryShadow;
+    lit += mix(vec3(0.008, 0.010, 0.016), skyBounce * 0.065, rain) * geometryShadow * (1.0 - horizontalSurface * 0.30);
     lit += albedo * vec3(0.34, 0.12, 0.025) * sunFacing * golden * 0.16;
     float dryRoadSpecular = roadMask * (1.0 - rain) * 0.018;
     float materialSpecular = dryRoadSpecular + glassMask * 0.72 + metalMask * (0.16 + day * 0.28) + roadMask * rain * 0.75;

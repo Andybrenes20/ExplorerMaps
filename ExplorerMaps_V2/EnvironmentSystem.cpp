@@ -40,6 +40,16 @@ namespace {
         return value - std::floor(value);
     }
 
+    float DayRandom(float day, float salt) {
+        return FractFloat(std::sin(day * 91.731f + salt * 37.719f) * 43758.5453f);
+    }
+
+    float SmoothDayRandom(float celestialDay, float salt) {
+        const float day = std::floor(celestialDay);
+        const float blend = glm::smoothstep(0.0f, 1.0f, FractFloat(celestialDay));
+        return glm::mix(DayRandom(day, salt), DayRandom(day + 1.0f, salt), blend);
+    }
+
     float LightningNoise(float seed) {
         return FractFloat(std::sin(seed * 12.9898f + 78.233f) * 43758.5453f);
     }
@@ -103,9 +113,16 @@ EnvironmentFrame EnvironmentSystem::Update(GLFWwindow* window, const GameplayGam
 EnvironmentFrame EnvironmentSystem::BuildFrame(float currentFrame) const {
     // Aqui se convierten hora/lluvia/rayos en valores finales para shaders y cielo.
     float sunAngle = HoursToSunAngle(timeOfDayHours);
-    const float orbitHeading = glm::radians(24.0f) * std::sin(celestialDay * 0.71f) +
-        glm::radians(12.0f) * std::sin(celestialDay * 0.23f + 1.7f);
-    const float sunAltitudeScale = 0.86f + 0.14f * std::sin(celestialDay * 0.37f + 0.8f);
+    const float dailyHeading = glm::mix(
+        glm::radians(-58.0f),
+        glm::radians(58.0f),
+        SmoothDayRandom(celestialDay, 1.0f));
+    const float orbitHeading = dailyHeading +
+        glm::radians(9.0f) * std::sin(celestialDay * 0.71f);
+    const float sunAltitudeScale = glm::mix(
+        0.72f,
+        1.0f,
+        SmoothDayRandom(celestialDay, 2.0f));
     float sunHeight = std::sin(sunAngle) * sunAltitudeScale;
 
     if (mode == EnvironmentMode::Day) {

@@ -4,6 +4,7 @@
 #include <thread>
 #include <future>
 #include <cstdio>
+#include <cmath>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -37,7 +38,7 @@ const float PLAYER_HEIGHT = 1.75f;
 const glm::vec3 PLAYER_SPAWN = glm::vec3(304.1f, 37.8f, 143.5f);
 const float PLAYER_SPAWN_YAW = -90.0f;
 const float PLAYER_SPAWN_PITCH = 0.0f;
-const unsigned int SHADOW_MAP_SIZE = 1280;
+const unsigned int SHADOW_MAP_SIZE = 1536;
 
 // --- VARIABLES DE BARRA DE PROGRESO ---
 float currentLoadingProgress = 0.0f;
@@ -622,7 +623,7 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("cloudCoverage", frame.cloudCoverage);
     shader.setFloat("cloudSpeed", frame.cloudSpeed);
     shader.setFloat("cloudDensity", frame.cloudDensity);
-    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.30f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.94f);
+    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.24f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.98f);
     shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
 
     const glm::vec3 lampColor(1.0f, 0.60f, 0.20f);
@@ -647,17 +648,25 @@ glm::mat4 RenderDirectionalShadow(
     const PhysicsWorld& physics,
     const std::vector<Optimization::MeshBounds>& meshBounds,
     float sceneRadius) {
-    const glm::vec3 shadowCenter = cameraPosition + cameraForward * 52.0f;
+    glm::vec3 shadowCenter = cameraPosition + cameraForward * 48.0f;
+    constexpr float shadowHalfWidth = 112.0f;
+    constexpr float shadowHalfHeight = 94.0f;
+    const float shadowWorldTexel = (shadowHalfWidth * 2.0f) / static_cast<float>(SHADOW_MAP_SIZE);
+    shadowCenter.x = std::floor(shadowCenter.x / shadowWorldTexel) * shadowWorldTexel;
+    shadowCenter.z = std::floor(shadowCenter.z / shadowWorldTexel) * shadowWorldTexel;
     glm::vec3 directionToLight = frame.mainLightPosition - shadowCenter;
     directionToLight = glm::length(directionToLight) > 0.001f
         ? glm::normalize(directionToLight)
         : glm::vec3(0.35f, 0.75f, -0.45f);
 
-    const glm::vec3 lightPosition = shadowCenter + directionToLight * 320.0f;
+    const glm::vec3 lightPosition = shadowCenter + directionToLight * 300.0f;
     const glm::vec3 lightUp = std::abs(glm::dot(directionToLight, cameraUp)) > 0.96f
         ? glm::vec3(0.0f, 0.0f, 1.0f)
         : cameraUp;
-    const glm::mat4 lightProjection = glm::ortho(-128.0f, 128.0f, -106.0f, 106.0f, 1.0f, 650.0f);
+    const glm::mat4 lightProjection = glm::ortho(
+        -shadowHalfWidth, shadowHalfWidth,
+        -shadowHalfHeight, shadowHalfHeight,
+        1.0f, 600.0f);
     const glm::mat4 lightView = glm::lookAt(lightPosition, shadowCenter, lightUp);
     const glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
@@ -665,7 +674,7 @@ glm::mat4 RenderDirectionalShadow(
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
     glClear(GL_DEPTH_BUFFER_BIT);
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.6f, 3.0f);
+    glPolygonOffset(1.25f, 2.4f);
 
     shader.use();
     shader.setMat4("model", glm::mat4(1.0f));

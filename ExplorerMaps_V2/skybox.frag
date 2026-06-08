@@ -126,14 +126,24 @@ void main() {
     float night = clamp(blendFactor, 0.0, 1.0);
     float vertical = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
+    float sunDot = max(dot(dir, sDir), 0.0);
+    float sunSide = dot(normalize(vec3(dir.x, 0.0, dir.z) + vec3(0.0001)), normalize(vec3(sDir.x, 0.0, sDir.z) + vec3(0.0001)));
     float noon = remap(sunHeight, 0.15, 0.82);
     float dusk = (1.0 - noon) * smoothstep(-0.18, 0.28, sunHeight);
-    vec3 dayBottom = mix(vec3(0.96, 0.65, 0.36), vec3(0.70, 0.84, 0.98), noon);
-    vec3 dayTop = mix(vec3(0.50, 0.58, 0.78), vec3(0.25, 0.52, 0.92), noon);
+    float sunset = smoothstep(0.34, 0.02, abs(sunHeight)) * smoothstep(-0.12, 0.22, sunHeight) * (1.0 - rain * 0.62);
+    float horizon = 1.0 - smoothstep(0.02, 0.42, abs(dir.y));
+    float sunHorizon = smoothstep(-0.45, 0.92, sunSide) * horizon * sunset;
+    float oppositeHorizon = smoothstep(0.20, -0.88, sunSide) * horizon * sunset;
+
+    vec3 dayBottom = mix(vec3(0.86, 0.74, 0.58), vec3(0.70, 0.84, 0.98), noon);
+    vec3 dayTop = mix(vec3(0.31, 0.35, 0.58), vec3(0.25, 0.52, 0.92), noon);
     vec3 daySky = mix(dayBottom, dayTop, smoothstep(0.0, 1.0, vertical));
-    float sunDot = max(dot(dir, sDir), 0.0);
+    daySky = mix(daySky, vec3(1.0, 0.45, 0.16), sunHorizon * 0.88);
+    daySky = mix(daySky, vec3(0.72, 0.33, 0.55), oppositeHorizon * 0.42);
+    daySky += vec3(1.0, 0.38, 0.08) * pow(sunDot, 4.0) * sunset * horizon * 0.28;
+    daySky += vec3(0.38, 0.16, 0.46) * (1.0 - smoothstep(0.0, 0.62, vertical)) * sunset * (0.18 + oppositeHorizon * 0.22);
     float sunPresence = smoothstep(-0.08, 0.42, sunHeight) * (1.0 - rain * 0.80);
-    daySky += vec3(1.0, 0.65, 0.32) * pow(sunDot, 30.0) * dusk * 0.26;
+    daySky += mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.65, 0.32), noon) * pow(sunDot, 30.0) * dusk * 0.34;
     daySky += mix(vec3(1.0, 0.52, 0.18), vec3(1.0, 0.88, 0.48), noon) * smoothstep(0.9992, 0.99986, sunDot) * sunPresence * 1.25;
     daySky = mix(daySky, vec3(0.23, 0.27, 0.32), rain * 0.70);
 
@@ -160,7 +170,7 @@ void main() {
 
     float horizonHaze = 1.0 - smoothstep(0.015, 0.34, abs(dir.y));
     float hazeNoise = fbm(vec2(atan(dir.z, dir.x) * 2.2 + time * 0.003, dir.y * 9.0));
-    vec3 dayHaze = mix(vec3(0.62, 0.76, 0.92), vec3(0.98, 0.55, 0.28), dusk * 0.72);
+    vec3 dayHaze = mix(vec3(0.62, 0.76, 0.92), vec3(1.0, 0.42, 0.18), sunset * (0.44 + smoothstep(-0.10, 0.90, sunSide) * 0.48));
     vec3 nightHaze = mix(vec3(0.035, 0.045, 0.075), vec3(0.025, 0.12, 0.32), rain);
     vec3 atmosphericHaze = mix(dayHaze, nightHaze, night);
     float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34 + fog * 0.34) * (0.82 + hazeNoise * 0.18);
