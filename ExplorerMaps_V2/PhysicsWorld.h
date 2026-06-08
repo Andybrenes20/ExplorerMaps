@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <glm/glm.hpp>
 #include <assimp/Importer.hpp>
+#include <assimp/matrix4x4.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
@@ -19,6 +20,16 @@ struct CollisionSubMesh {
     std::size_t indexCount = 0;
     glm::vec3 boundsMin = glm::vec3(0.0f);
     glm::vec3 boundsMax = glm::vec3(0.0f);
+    struct BvhNode {
+        glm::vec3 boundsMin = glm::vec3(0.0f);
+        glm::vec3 boundsMax = glm::vec3(0.0f);
+        int left = -1;
+        int right = -1;
+        std::size_t firstTriangle = 0;
+        std::size_t triangleCount = 0;
+    };
+    std::vector<BvhNode> bvhNodes;
+    std::vector<std::size_t> bvhTriangleOffsets;
 };
 
 // Estructura para almacenar los píxeles crudos en RAM temporalmente
@@ -61,8 +72,8 @@ private:
     std::map<int, RawTextureData> pendingTextures;
     int lastRaycastMeshIndex = -1;
 
-    void ProcessNode(aiNode* node, const aiScene* scene);
-    void ProcessMesh(aiMesh* mesh, const aiScene* scene);
+    void ProcessNode(aiNode* node, const aiScene* scene, const aiMatrix4x4& parentTransform);
+    void ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale);
     void LoadSingleEmbeddedTexture(const aiTexture* texture, int textureIndex);
     bool IntersectRayTriangle(glm::vec3 orig, glm::vec3 dir, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, float& t);
 };

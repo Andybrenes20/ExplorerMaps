@@ -147,6 +147,45 @@ namespace {
         }
 
         bool hit = false;
+        if (!subMesh.bvhNodes.empty()) {
+            std::vector<int> pendingNodes;
+            pendingNodes.reserve(64);
+            pendingNodes.push_back(0);
+
+            while (!pendingNodes.empty()) {
+                const int nodeIndex = pendingNodes.back();
+                pendingNodes.pop_back();
+                const CollisionSubMesh::BvhNode& node = subMesh.bvhNodes[static_cast<std::size_t>(nodeIndex)];
+                if (!RayIntersectsAabb(origin, direction, node.boundsMin - padding, node.boundsMax + padding, closestDistance)) {
+                    continue;
+                }
+
+                if (node.triangleCount > 0) {
+                    const std::size_t endTriangle = node.firstTriangle + node.triangleCount;
+                    for (std::size_t triangle = node.firstTriangle; triangle < endTriangle; ++triangle) {
+                        const std::size_t indexOffset = subMesh.bvhTriangleOffsets[triangle];
+                        const glm::vec3& a = collider.vertices[collider.indices[indexOffset]];
+                        const glm::vec3& b = collider.vertices[collider.indices[indexOffset + 1]];
+                        const glm::vec3& c = collider.vertices[collider.indices[indexOffset + 2]];
+                        float distance = 0.0f;
+                        if (IntersectRayTriangle(origin, direction, a, b, c, distance) && distance < closestDistance) {
+                            closestDistance = distance;
+                            hit = true;
+                        }
+                    }
+                }
+                else {
+                    if (node.left >= 0) {
+                        pendingNodes.push_back(node.left);
+                    }
+                    if (node.right >= 0) {
+                        pendingNodes.push_back(node.right);
+                    }
+                }
+            }
+            return hit;
+        }
+
         const std::size_t endIndex = std::min(subMesh.indexStart + subMesh.indexCount, collider.indices.size());
         for (std::size_t i = subMesh.indexStart; i + 2 < endIndex; i += 3) {
             const glm::vec3& a = collider.vertices[collider.indices[i]];
@@ -164,6 +203,61 @@ namespace {
 }
 
 namespace Optimization {
+    std::size_t BuildCollisionAcceleration(
+        const CollisionMesh& collider,
+        std::vector<CollisionSubMesh>& subMeshes) {
+        constexpr std::size_t minimumTriangles = 2048;
+        constexpr std::size_t leafTriangles = 24;
+        std::size_t acceleratedMeshes = 0;
+
+        for (CollisionSubMesh& subMesh : subMeshes) {
+            const std::size_t triangleCount = subMesh.indexCount / 3;
+            if (triangleCount < minimumTriangles) {
+                continue;
+            }
+
+            subMesh.bvhTriangleOffsets.resize(triangleCount);
+            for (std::size_t triangle = 0; triangle < triangleCount; ++triangle) {
+                subMesh.bvhTriangleOffsets[triangle] = subMesh.indexStart + triangle * 3;
+            }
+            subMesh.bvhNodes.reserve(triangleCount / leafTriangles * 2 + 1);
+
+            const auto buildNode = [&](auto&& self, std::size_t first, std::size_t count) -> int {
+                CollisionSubMesh::BvhNode node;
+                node.boundsMin = glm::vec3(std::numeric_limits<float>::max());
+                node.boundsMax = glm::vec3(-std::numeric_limits<float>::max());
+
+                for (std::size_t i = first; i < first + count; ++i) {
+                    const std::size_t offset = subMesh.bvhTriangleOffsets[i];
+                    const glm::vec3& a = collider.vertices[collider.indices[offset]];
+                    const glm::vec3& b = collider.vertices[collider.indices[offset + 1]];
+                    const glm::vec3& c = collider.vertices[collider.indices[offset + 2]];
+                    node.boundsMin = glm::min(node.boundsMin, glm::min(a, glm::min(b, c)));
+                    node.boundsMax = glm::max(node.boundsMax, glm::max(a, glm::max(b, c)));
+                }
+
+                const int nodeIndex = static_cast<int>(subMesh.bvhNodes.size());
+                subMesh.bvhNodes.push_back(node);
+                if (count <= leafTriangles) {
+                    subMesh.bvhNodes[static_cast<std::size_t>(nodeIndex)].firstTriangle = first;
+                    subMesh.bvhNodes[static_cast<std::size_t>(nodeIndex)].triangleCount = count;
+                    return nodeIndex;
+                }
+
+                const std::size_t middle = first + count / 2;
+                const int left = self(self, first, middle - first);
+                const int right = self(self, middle, first + count - middle);
+                subMesh.bvhNodes[static_cast<std::size_t>(nodeIndex)].left = left;
+                subMesh.bvhNodes[static_cast<std::size_t>(nodeIndex)].right = right;
+                return nodeIndex;
+            };
+
+            buildNode(buildNode, 0, triangleCount);
+            ++acceleratedMeshes;
+        }
+        return acceleratedMeshes;
+    }
+
     std::vector<MeshBounds> BuildMeshBounds(const std::vector<RenderMesh>& meshes) {
         std::vector<MeshBounds> bounds;
         bounds.reserve(meshes.size());

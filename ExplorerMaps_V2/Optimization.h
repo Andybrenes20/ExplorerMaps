@@ -70,6 +70,10 @@ namespace Optimization {
         const FrameCulling& frame,
         const RenderSettings& settings = RenderSettings{});
 
+    std::size_t BuildCollisionAcceleration(
+        const CollisionMesh& collider,
+        std::vector<CollisionSubMesh>& subMeshes);
+
     bool RaycastCollisionMeshes(
         const CollisionMesh& collider,
         const std::vector<CollisionSubMesh>& subMeshes,

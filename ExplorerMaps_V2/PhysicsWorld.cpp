@@ -1,8 +1,10 @@
 #include "PhysicsWorld.h"
 #include "Optimization.h"
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <GL/glew.h>
+#include <assimp/matrix3x3.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -10,7 +12,27 @@
 extern float currentLoadingProgress;
 
 namespace {
-    constexpr unsigned int COLLISION_FACES_PER_CHUNK = 1024;
+constexpr unsigned int COLLISION_FACES_PER_CHUNK = 1024;
+constexpr unsigned int LEGACY_CITY_MESH_COUNT = 2780;
+constexpr float ADDED_CONTENT_SCALE = 100.0f;
+
+glm::vec3 TransformPosition(const aiMatrix4x4& transform, const aiVector3D& position, float scale) {
+    return scale * glm::vec3(
+        transform.a1 * position.x + transform.a2 * position.y + transform.a3 * position.z + transform.a4,
+        transform.b1 * position.x + transform.b2 * position.y + transform.b3 * position.z + transform.b4,
+        transform.c1 * position.x + transform.c2 * position.y + transform.c3 * position.z + transform.c4);
+}
+
+glm::vec3 TransformNormal(const aiMatrix3x3& transform, const aiVector3D& normal) {
+    const glm::vec3 transformed(
+        transform.a1 * normal.x + transform.a2 * normal.y + transform.a3 * normal.z,
+        transform.b1 * normal.x + transform.b2 * normal.y + transform.b3 * normal.z,
+        transform.c1 * normal.x + transform.c2 * normal.y + transform.c3 * normal.z);
+
+    return glm::length(transformed) > 0.0001f
+        ? glm::normalize(transformed)
+        : glm::vec3(0.0f, 1.0f, 0.0f);
+}
 }
 
 bool PhysicsWorld::LoadCollisionData(const std::string& path) {
@@ -34,20 +56,32 @@ bool PhysicsWorld::LoadCollisionData(const std::string& path) {
     cityCollider.indices.clear();
     lastRaycastMeshIndex = -1;
 
-    unsigned int totalMeshes = scene->mNumMeshes;
-    ProcessNode(scene->mRootNode, scene);
+    ProcessNode(scene->mRootNode, scene, aiMatrix4x4());
+    const std::size_t acceleratedMeshes = Optimization::BuildCollisionAcceleration(cityCollider, collisionSubMeshes);
+    std::cout << "Collision BVH: " << acceleratedMeshes << " mallas pesadas aceleradas." << std::endl;
 
     currentLoadingProgress = 1.0f;
     return true; // Terminó la CPU, pero aún falta subir a la GPU
 }
 
-void PhysicsWorld::ProcessNode(aiNode* node, const aiScene* scene) {
+void PhysicsWorld::ProcessNode(aiNode* node, const aiScene* scene, const aiMatrix4x4& parentTransform) {
+    const aiMatrix4x4 transform = parentTransform * node->mTransformation;
+
     for (unsigned int i = 0; i < node->mNumMeshes; i++) {
-        aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-        ProcessMesh(mesh, scene);
+        const unsigned int meshIndex = node->mMeshes[i];
+        aiMesh* mesh = scene->mMeshes[meshIndex];
+
+        // La ciudad original ya tiene sus vertices en unidades caminables.
+        // El contenido agregado conserva transformaciones y unidades de Blender.
+        const bool isAddedContent = meshIndex >= LEGACY_CITY_MESH_COUNT;
+        ProcessMesh(
+            mesh,
+            scene,
+            isAddedContent ? transform : aiMatrix4x4(),
+            isAddedContent ? ADDED_CONTENT_SCALE : 1.0f);
     }
     for (unsigned int i = 0; i < node->mNumChildren; i++) {
-        ProcessNode(node->mChildren[i], scene);
+        ProcessNode(node->mChildren[i], scene, transform);
     }
 }
 
@@ -71,12 +105,14 @@ void PhysicsWorld::LoadSingleEmbeddedTexture(const aiTexture* texture, int textu
     }
 }
 
-void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
+void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale) {
     const unsigned int vertexOffset = static_cast<unsigned int>(cityCollider.vertices.size());
+    aiMatrix3x3 normalTransform(transform);
+    normalTransform.Inverse().Transpose();
 
     // 1. Física
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        const glm::vec3 position(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        const glm::vec3 position = TransformPosition(transform, mesh->mVertices[i], scale);
         cityCollider.vertices.push_back(position);
     }
 
@@ -114,7 +150,7 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
     RenderMesh currentVisualMesh;
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        currentVisualMesh.tempVertices.push_back(glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z));
+        currentVisualMesh.tempVertices.push_back(TransformPosition(transform, mesh->mVertices[i], scale));
 
         if (mesh->mTextureCoords[0]) {
             currentVisualMesh.tempUVs.push_back(glm::vec2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y));
@@ -124,7 +160,7 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
         }
 
         if (mesh->HasNormals()) {
-            currentVisualMesh.tempNormals.push_back(glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z));
+            currentVisualMesh.tempNormals.push_back(TransformNormal(normalTransform, mesh->mNormals[i]));
         }
         else {
             currentVisualMesh.tempNormals.push_back(glm::vec3(0.0f, 1.0f, 0.0f));
@@ -178,7 +214,10 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
 
     // NO HAY LLAMADAS A OPENGL AQUÍ
     visualMeshes.push_back(currentVisualMesh);
-    currentLoadingProgress = static_cast<float>(visualMeshes.size()) / static_cast<float>(scene->mNumMeshes);
+    currentLoadingProgress = std::clamp(
+        static_cast<float>(visualMeshes.size()) / static_cast<float>(scene->mNumMeshes),
+        0.0f,
+        0.99f);
 }
 
 // --- NUEVA FUNCIÓN: Toma la RAM y la envía a la VRAM de forma segura ---
@@ -205,10 +244,41 @@ void PhysicsWorld::UploadToGPU() {
     }
 
     // 2. Subir Geometría
+    std::map<unsigned int, unsigned int> fallbackTextures;
     for (auto& mesh : visualMeshes) {
         // Enlazar ID de textura generado
         if (mesh.pendingTextureIndex != -1) {
             mesh.textureID = pendingTextures[mesh.pendingTextureIndex].gpuID;
+        }
+        else {
+            const auto channel = [](float value) {
+                return static_cast<unsigned char>(std::clamp(std::lround(value * 255.0f), 0l, 255l));
+            };
+            const unsigned char color[] = {
+                channel(mesh.diffuseColor.r),
+                channel(mesh.diffuseColor.g),
+                channel(mesh.diffuseColor.b),
+                255
+            };
+            const unsigned int colorKey =
+                (static_cast<unsigned int>(color[0]) << 16) |
+                (static_cast<unsigned int>(color[1]) << 8) |
+                static_cast<unsigned int>(color[2]);
+
+            auto fallback = fallbackTextures.find(colorKey);
+            if (fallback == fallbackTextures.end()) {
+                glGenTextures(1, &mesh.textureID);
+                glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, color);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                fallbackTextures[colorKey] = mesh.textureID;
+            }
+            else {
+                mesh.textureID = fallback->second;
+            }
         }
 
         glGenVertexArrays(1, &mesh.VAO);
