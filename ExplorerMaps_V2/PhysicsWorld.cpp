@@ -1,5 +1,6 @@
 #include "PhysicsWorld.h"
 #include "Optimization.h"
+#include <algorithm>
 #include <iostream>
 #include <GL/glew.h>
 
@@ -7,6 +8,10 @@
 #include "stb/stb_image.h"
 
 extern float currentLoadingProgress;
+
+namespace {
+    constexpr unsigned int COLLISION_FACES_PER_CHUNK = 1024;
+}
 
 bool PhysicsWorld::LoadCollisionData(const std::string& path) {
     currentLoadingProgress = 0.01f;
@@ -67,36 +72,45 @@ void PhysicsWorld::LoadSingleEmbeddedTexture(const aiTexture* texture, int textu
 }
 
 void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
-    unsigned int vertexOffset = static_cast<unsigned int>(cityCollider.vertices.size());
-    CollisionSubMesh collisionSubMesh;
-    collisionSubMesh.indexStart = cityCollider.indices.size();
+    const unsigned int vertexOffset = static_cast<unsigned int>(cityCollider.vertices.size());
 
     // 1. Física
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         const glm::vec3 position(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
         cityCollider.vertices.push_back(position);
-        if (i == 0) {
-            collisionSubMesh.boundsMin = position;
-            collisionSubMesh.boundsMax = position;
-        }
-        else {
-            collisionSubMesh.boundsMin = glm::min(collisionSubMesh.boundsMin, position);
-            collisionSubMesh.boundsMax = glm::max(collisionSubMesh.boundsMax, position);
-        }
     }
-    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-        aiFace face = mesh->mFaces[i];
-        for (unsigned int j = 0; j < face.mNumIndices; j++) {
-            cityCollider.indices.push_back(face.mIndices[j] + vertexOffset);
+
+    for (unsigned int chunkStart = 0; chunkStart < mesh->mNumFaces; chunkStart += COLLISION_FACES_PER_CHUNK) {
+        CollisionSubMesh collisionChunk;
+        collisionChunk.indexStart = cityCollider.indices.size();
+        bool hasBounds = false;
+        const unsigned int chunkEnd = std::min(chunkStart + COLLISION_FACES_PER_CHUNK, mesh->mNumFaces);
+
+        for (unsigned int i = chunkStart; i < chunkEnd; i++) {
+            const aiFace& face = mesh->mFaces[i];
+            for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                const unsigned int index = face.mIndices[j] + vertexOffset;
+                cityCollider.indices.push_back(index);
+                const glm::vec3& position = cityCollider.vertices[index];
+                if (!hasBounds) {
+                    collisionChunk.boundsMin = position;
+                    collisionChunk.boundsMax = position;
+                    hasBounds = true;
+                }
+                else {
+                    collisionChunk.boundsMin = glm::min(collisionChunk.boundsMin, position);
+                    collisionChunk.boundsMax = glm::max(collisionChunk.boundsMax, position);
+                }
+            }
+        }
+
+        collisionChunk.indexCount = cityCollider.indices.size() - collisionChunk.indexStart;
+        if (collisionChunk.indexCount > 0) {
+            collisionSubMeshes.push_back(collisionChunk);
         }
     }
 
     // 2. Extracción a Memoria Temporal (RAM)
-    collisionSubMesh.indexCount = cityCollider.indices.size() - collisionSubMesh.indexStart;
-    if (collisionSubMesh.indexCount > 0) {
-        collisionSubMeshes.push_back(collisionSubMesh);
-    }
-
     RenderMesh currentVisualMesh;
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
@@ -178,10 +192,11 @@ void PhysicsWorld::UploadToGPU() {
 
             GLenum format = (tex.nrChannels == 4) ? GL_RGBA : GL_RGB;
             glTexImage2D(GL_TEXTURE_2D, 0, format, tex.width, tex.height, 0, format, GL_UNSIGNED_BYTE, tex.pixels);
+            glGenerateMipmap(GL_TEXTURE_2D);
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             stbi_image_free(tex.pixels); // Liberar RAM
