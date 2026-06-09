@@ -44,6 +44,15 @@ struct PointLight {
 uniform PointLight pointLights[NR_POINT_LIGHTS];
 uniform float pointLightIntensity;
 
+struct Headlight {
+    vec3 position;
+    vec3 direction;
+};
+
+#define NR_HEADLIGHTS 2
+uniform Headlight headlights[NR_HEADLIGHTS];
+uniform float headlightIntensity;
+
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
@@ -122,6 +131,21 @@ vec3 pointLight(PointLight lamp, vec3 normal, vec3 albedo, float horizontalSurfa
     float halo = exp(-(horizontalDistance * horizontalDistance) / 620.0) * (1.0 - smoothstep(0.0, 55.0, distanceToLamp)) * facadeMask;
     color += lamp.diffuse * halo * 0.042;
     return color * pointLightIntensity;
+}
+
+vec3 vehicleHeadlight(Headlight lamp, vec3 normal, vec3 albedo) {
+    vec3 toFragment = FragPos - lamp.position;
+    float distanceToLight = length(toFragment);
+    vec3 beamDirection = normalize(toFragment);
+    float coneAngle = dot(beamDirection, normalize(lamp.direction));
+    float cone = smoothstep(0.905, 0.978, coneAngle);
+    float distanceFade = 1.0 - smoothstep(18.0, 52.0, distanceToLight);
+    float attenuation = 1.0 / (1.0 + distanceToLight * 0.035 + distanceToLight * distanceToLight * 0.010);
+    vec3 towardLight = normalize(lamp.position - FragPos);
+    float diffuse = max(dot(normal, towardLight), 0.0);
+    float forwardFloorFill = smoothstep(0.18, 0.92, normal.y) * cone * 0.16;
+    vec3 warmWhite = mix(vec3(1.0, 0.78, 0.48), vec3(1.0, 0.94, 0.76), rainIntensity);
+    return albedo * warmWhite * (diffuse + forwardFloorFill) * cone * distanceFade * attenuation * 3.8 * headlightIntensity;
 }
 
 void main() {
@@ -294,6 +318,12 @@ void main() {
     mattePaint += base * vec3(0.045, 0.050, 0.060) * night;
     mattePaint = min(mattePaint, base * mix(0.86, 0.62, night));
     lit = mix(lit, mattePaint, roadPaintMask * mix(0.72, 0.92, night) * (1.0 - rain * 0.28));
+
+    if (headlightIntensity > 0.01) {
+        for (int i = 0; i < NR_HEADLIGHTS; ++i) {
+            lit += vehicleHeadlight(headlights[i], normal, base);
+        }
+    }
 
     vec3 viewDelta = viewPos - FragPos;
     float viewDistance = length(viewDelta);

@@ -36,6 +36,18 @@ glm::vec3 TransformNormal(const aiMatrix3x3& transform, const aiVector3D& normal
 }
 
 bool PhysicsWorld::LoadCollisionData(const std::string& path) {
+    visualOnly = false;
+    forceNodeTransforms = false;
+    return LoadData(path);
+}
+
+bool PhysicsWorld::LoadVisualData(const std::string& path) {
+    visualOnly = true;
+    forceNodeTransforms = true;
+    return LoadData(path);
+}
+
+bool PhysicsWorld::LoadData(const std::string& path) {
     currentLoadingProgress = 0.01f;
 
     Assimp::Importer importer;
@@ -54,11 +66,14 @@ bool PhysicsWorld::LoadCollisionData(const std::string& path) {
     collisionSubMeshes.clear();
     cityCollider.vertices.clear();
     cityCollider.indices.clear();
+    pendingTextures.clear();
     lastRaycastMeshIndex = -1;
 
     ProcessNode(scene->mRootNode, scene, aiMatrix4x4());
-    const std::size_t acceleratedMeshes = Optimization::BuildCollisionAcceleration(cityCollider, collisionSubMeshes);
-    std::cout << "Collision BVH: " << acceleratedMeshes << " mallas pesadas aceleradas." << std::endl;
+    if (!visualOnly) {
+        const std::size_t acceleratedMeshes = Optimization::BuildCollisionAcceleration(cityCollider, collisionSubMeshes);
+        std::cout << "Collision BVH: " << acceleratedMeshes << " mallas pesadas aceleradas." << std::endl;
+    }
 
     currentLoadingProgress = 1.0f;
     return true; // Terminó la CPU, pero aún falta subir a la GPU
@@ -73,12 +88,13 @@ void PhysicsWorld::ProcessNode(aiNode* node, const aiScene* scene, const aiMatri
 
         // La ciudad original ya tiene sus vertices en unidades caminables.
         // El contenido agregado conserva transformaciones y unidades de Blender.
-        const bool isAddedContent = meshIndex >= LEGACY_CITY_MESH_COUNT;
+        const bool isAddedContent = forceNodeTransforms || meshIndex >= LEGACY_CITY_MESH_COUNT;
         ProcessMesh(
             mesh,
             scene,
             isAddedContent ? transform : aiMatrix4x4(),
-            isAddedContent ? ADDED_CONTENT_SCALE : 1.0f);
+            forceNodeTransforms ? 1.0f : (isAddedContent ? ADDED_CONTENT_SCALE : 1.0f),
+            node->mName.C_Str());
     }
     for (unsigned int i = 0; i < node->mNumChildren; i++) {
         ProcessNode(node->mChildren[i], scene, transform);
@@ -105,18 +121,18 @@ void PhysicsWorld::LoadSingleEmbeddedTexture(const aiTexture* texture, int textu
     }
 }
 
-void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale) {
+void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale, const std::string& nodeName) {
     const unsigned int vertexOffset = static_cast<unsigned int>(cityCollider.vertices.size());
     aiMatrix3x3 normalTransform(transform);
     normalTransform.Inverse().Transpose();
 
     // 1. Física
-    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+    for (unsigned int i = 0; !visualOnly && i < mesh->mNumVertices; i++) {
         const glm::vec3 position = TransformPosition(transform, mesh->mVertices[i], scale);
         cityCollider.vertices.push_back(position);
     }
 
-    for (unsigned int chunkStart = 0; chunkStart < mesh->mNumFaces; chunkStart += COLLISION_FACES_PER_CHUNK) {
+    for (unsigned int chunkStart = 0; !visualOnly && chunkStart < mesh->mNumFaces; chunkStart += COLLISION_FACES_PER_CHUNK) {
         CollisionSubMesh collisionChunk;
         collisionChunk.indexStart = cityCollider.indices.size();
         bool hasBounds = false;
@@ -148,6 +164,8 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatri
 
     // 2. Extracción a Memoria Temporal (RAM)
     RenderMesh currentVisualMesh;
+    currentVisualMesh.nodeName = nodeName;
+    currentVisualMesh.pivot = TransformPosition(transform, aiVector3D(0.0f), scale);
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         currentVisualMesh.tempVertices.push_back(TransformPosition(transform, mesh->mVertices[i], scale));

@@ -27,6 +27,7 @@
 #include "EnvironmentSystem.h"
 #include "EnvironmentAudio.h"
 #include "WeatherOverlay.h"
+#include "VehicleController.h"
 #include "MainMenu.h"
 #include "LoadingScreen.h"
 #include "Shader.h"
@@ -77,7 +78,7 @@ float lastFrame = 0.0f;
 // --- DECLARACIÓN DE FUNCIONES ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
-void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad);
+void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad, bool vehicleDriving);
 bool processFlightInput(GLFWwindow* window);
 void UpdateWindowTitle(GLFWwindow* window, float currentFrame);
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame);
@@ -148,6 +149,10 @@ int main() {
     std::vector<Optimization::MeshBounds> cityMeshBounds;
     Optimization::SceneBounds citySceneBounds;
     PlayerMovementAnimation movementAnimation;
+    VehicleController vehicle;
+    if (!vehicle.InitAudio(&audioEngine)) {
+        std::cout << "Advertencia: No se pudieron cargar todos los sonidos del vehiculo." << std::endl;
+    }
     EnvironmentSystem environmentSystem;
     Shader cityShader("city.vert", "city.frag");
     Shader skyboxShader("skybox.vert", "skybox.frag");
@@ -239,6 +244,9 @@ int main() {
                     cityMeshBounds = Optimization::BuildMeshBounds(physics.visualMeshes);
                     citySceneBounds = Optimization::BuildSceneBounds(cityMeshBounds);
                     physics.UploadToGPU();
+                    if (vehicle.Load("modelos/nissan.glb")) {
+                        vehicle.UploadToGPU();
+                    }
 
                     glm::vec3 minBounds = physics.cityCollider.vertices[0];
                     glm::vec3 maxBounds = physics.cityCollider.vertices[0];
@@ -289,14 +297,17 @@ int main() {
             const EnvironmentFrame environmentFrame = environmentSystem.Update(window, gamepad, deltaTime, currentFrame);
             environmentAudio.Update(environmentFrame, environmentSystem);
             if (!environmentSystem.IsMenuOpen()) {
-                GameplayInput::ApplyGamepadCamera(gamepad, deltaTime, yaw, pitch, cameraFront);
-                processInput(window, physics, gamepad);
+                if (!vehicle.IsDriving()) {
+                    GameplayInput::ApplyGamepadCamera(gamepad, deltaTime, yaw, pitch, cameraFront);
+                }
+                vehicle.Update(window, gamepad, deltaTime, physics, cameraPos, cameraPos, cameraFront, yaw, pitch);
+                processInput(window, physics, gamepad, vehicle.IsDriving());
             }
             // Animacion de caminar/correr: ver PlayerMovementAnimation.cpp.
-            movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp, !isFlying);
+            movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp, !isFlying && !vehicle.IsDriving());
 
             // Gravedad
-            if (!isFlying) {
+            if (!isFlying && !vehicle.IsDriving()) {
                 float distanceToGround = 0.0f;
                 glm::vec3 rayOrigin = cameraPos;
                 rayOrigin.y += 1.0f;
@@ -338,6 +349,7 @@ int main() {
             cityShader.setMat4("model", model);
             cityShader.setMat4("lightSpaceMatrix", shadowLightSpaceMatrix);
             UploadCityEnvironment(cityShader, environmentFrame, animatedCameraPos, currentFrame);
+            vehicle.UploadHeadlights(cityShader, environmentFrame.nightFactor, environmentFrame.rainIntensity);
             cityShader.setInt("shadowMap", 1);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, shadowTexture);
@@ -349,6 +361,7 @@ int main() {
                 cameraFront,
                 citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
+            vehicle.Draw(cityShader);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, animatedCameraPos, currentFrame);
             // Punto central de interaccion: ver InteractionReticle.cpp.
@@ -377,6 +390,7 @@ int main() {
             cityShader.setMat4("model", model);
             cityShader.setMat4("lightSpaceMatrix", shadowLightSpaceMatrix);
             UploadCityEnvironment(cityShader, environmentFrame, cameraPos, currentFrame);
+            vehicle.UploadHeadlights(cityShader, environmentFrame.nightFactor, environmentFrame.rainIntensity);
             cityShader.setInt("shadowMap", 1);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, shadowTexture);
@@ -388,6 +402,7 @@ int main() {
                 cameraFront,
                 citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
+            vehicle.Draw(cityShader);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, cameraPos, currentFrame);
 
@@ -428,6 +443,7 @@ int main() {
 
     // 5. LIMPIEZA
     environmentAudio.Shutdown();
+    vehicle.Shutdown();
     mainMenu.Shutdown();
     ma_sound_uninit(&sfxPasos);
     ma_sound_uninit(&sfxCorrer);
@@ -454,7 +470,7 @@ int main() {
     return 0;
 }
 
-void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad) {
+void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad, bool vehicleDriving) {
     // --- CONTROL DE PAUSA CON ESCAPE ---
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || gamepad.pauseDown) {
         if (currentState == STATE_RUNNING) {
@@ -472,6 +488,7 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamep
 
     // Si el juego está en el Menú Principal o en Pausa, no procesamos el movimiento del jugador
     if (currentState != STATE_RUNNING) return;
+    if (vehicleDriving) return;
 
     if (processFlightInput(window)) {
         return;
@@ -559,7 +576,7 @@ bool processFlightInput(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) flyDirection -= cameraUp;
 
     if (glm::length(flyDirection) > 0.0001f) {
-        const float speed = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 24.0f : 16.0f;
+        const float speed = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 60.0f : 30.0f;
         cameraPos += glm::normalize(flyDirection) * speed * deltaTime;
     }
     return true;

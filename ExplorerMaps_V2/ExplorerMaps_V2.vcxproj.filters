@@ -75,6 +75,9 @@
     <ClInclude Include="WeatherOverlay.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="VehicleController.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="PhysicsWorld.cpp">
@@ -125,9 +128,15 @@
     <ClCompile Include="WeatherOverlay.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="VehicleController.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="modelos\city.glb">
+      <Filter>modelos</Filter>
+    </None>
+    <None Include="modelos\nissan.glb">
       <Filter>modelos</Filter>
     </None>
     <None Include="city.vert">

@@ -42,13 +42,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -176,6 +176,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClInclude Include="PhysicsWorld.h" />
     <ClInclude Include="PlayerMovementAnimation.h" />
     <ClInclude Include="Shader.h" />
+    <ClInclude Include="VehicleController.h" />
     <ClInclude Include="WeatherOverlay.h" />
   </ItemGroup>
   <ItemGroup>
@@ -194,6 +195,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClCompile Include="Optimization.cpp" />
     <ClCompile Include="PhysicsWorld.cpp" />
     <ClCompile Include="PlayerMovementAnimation.cpp" />
+    <ClCompile Include="VehicleController.cpp" />
     <ClCompile Include="WeatherOverlay.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -201,6 +203,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <None Include="city.frag" />
     <None Include="city.vert" />
     <None Include="modelos\city.glb" />
+    <None Include="modelos\nissan.glb" />
     <None Include="skybox.frag" />
     <None Include="skybox.vert" />
   </ItemGroup>

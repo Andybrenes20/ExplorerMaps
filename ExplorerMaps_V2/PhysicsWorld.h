@@ -54,6 +54,8 @@ struct RenderMesh {
     glm::vec3 diffuseColor;
     glm::vec3 specularColor;
     float shineness;
+    std::string nodeName;
+    glm::vec3 pivot = glm::vec3(0.0f);
 };
 
 class PhysicsWorld {
@@ -63,6 +65,7 @@ public:
     std::vector<RenderMesh> visualMeshes;
 
     bool LoadCollisionData(const std::string& path);
+    bool LoadVisualData(const std::string& path);
     bool Raycast(glm::vec3 origin, glm::vec3 direction, float& outDistance);
 
     // --- NUEVA FUNCIÓN: Se ejecuta en el Hilo Principal ---
@@ -71,9 +74,12 @@ public:
 private:
     std::map<int, RawTextureData> pendingTextures;
     int lastRaycastMeshIndex = -1;
+    bool visualOnly = false;
+    bool forceNodeTransforms = false;
 
+    bool LoadData(const std::string& path);
     void ProcessNode(aiNode* node, const aiScene* scene, const aiMatrix4x4& parentTransform);
-    void ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale);
+    void ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatrix4x4& transform, float scale, const std::string& nodeName);
     void LoadSingleEmbeddedTexture(const aiTexture* texture, int textureIndex);
     bool IntersectRayTriangle(glm::vec3 orig, glm::vec3 dir, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, float& t);
 };
