@@ -21,6 +21,7 @@ uniform float cloudSpeed;
 uniform float cloudDensity;
 uniform vec3 celestialLightPosition;
 uniform float shadowStrength;
+uniform vec3 objectTint;
 
 struct DirLight {
     vec3 direction;
@@ -87,16 +88,17 @@ float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
     float bias = mix(0.00105, 0.00018, normalLight);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float closestDepth = texture(shadowMap, projected.xy + vec2(x, y) * texel).r;
-            shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
-        }
+    const vec2 offsets[4] = vec2[](
+        vec2(-0.75, -0.75), vec2(0.75, -0.75),
+        vec2(-0.75, 0.75), vec2(0.75, 0.75));
+    for (int i = 0; i < 4; ++i) {
+        float closestDepth = texture(shadowMap, projected.xy + offsets[i] * texel).r;
+        shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
     }
 
     float edgeDistance = min(min(projected.x, projected.y), min(1.0 - projected.x, 1.0 - projected.y));
     float edgeFade = smoothstep(0.0, 0.035, edgeDistance);
-    return clamp((shadow / 9.0) * shadowStrength * edgeFade, 0.0, 0.97);
+    return clamp((shadow / 4.0) * shadowStrength * edgeFade, 0.0, 0.97);
 }
 
 vec3 tonemap(vec3 color) {
@@ -154,7 +156,7 @@ void main() {
         discard;
     }
 
-    vec3 base = texel.rgb;
+    vec3 base = texel.rgb * mix(vec3(1.0), objectTint, 0.72);
     vec3 smoothNormal = normalize(gl_FrontFacing ? Normal : -Normal);
     vec3 geometricNormal = normalize(cross(dFdx(FragPos), dFdy(FragPos)));
     if (dot(geometricNormal, smoothNormal) < 0.0) {

@@ -11,4 +11,5 @@ public:
 private:
     ImFont* titleFont = nullptr;
     ImFont* bodyFont = nullptr;
+    float displayedProgress = 0.0f;
 };

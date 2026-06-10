@@ -28,6 +28,9 @@ public:
         float& cameraPitch);
     void UploadHeadlights(Shader& shader, float nightFactor, float rainIntensity) const;
     void Draw(Shader& shader) const;
+    void DrawReplica(Shader& shader, const glm::vec3& replicaPosition, float replicaYaw, float replicaPitch, float replicaWheelSpin, const glm::vec3& color) const;
+    void SetAudioPaused(bool paused);
+    void ResetForMainMenu();
     void Shutdown();
 
     bool IsDriving() const;
@@ -51,6 +54,7 @@ private:
     int currentGear = 0;
     bool driving = false;
     bool interactWasDown = false;
+    bool audioPaused = false;
     bool audioReady[4] = {};
     ma_sound engineIdle = {};
     ma_sound engineMid = {};

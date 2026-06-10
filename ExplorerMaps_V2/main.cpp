@@ -1,4 +1,5 @@
 #include <iostream>
+#include <atomic>
 #include <vector>
 #include <string>
 #include <thread>
@@ -28,7 +29,9 @@
 #include "EnvironmentAudio.h"
 #include "WeatherOverlay.h"
 #include "VehicleController.h"
+#include "TrafficSystem.h"
 #include "MainMenu.h"
+#include "Localization.h"
 #include "LoadingScreen.h"
 #include "Shader.h"
 
@@ -39,10 +42,10 @@ const float PLAYER_HEIGHT = 1.75f;
 const glm::vec3 PLAYER_SPAWN = glm::vec3(304.1f, 37.8f, 143.5f);
 const float PLAYER_SPAWN_YAW = -90.0f;
 const float PLAYER_SPAWN_PITCH = 0.0f;
-const unsigned int SHADOW_MAP_SIZE = 1536;
+const unsigned int SHADOW_MAP_SIZE = 1024;
 
 // --- VARIABLES DE BARRA DE PROGRESO ---
-float currentLoadingProgress = 0.0f;
+std::atomic<float> currentLoadingProgress{ 0.0f };
 bool loadingStarted = false;
 
 // --- VARIABLES GLOBALES DE AUDIO ---
@@ -53,6 +56,7 @@ bool isMovingAudio = false;
 bool isRunningAudio = false;
 bool isFlying = false;
 bool flyToggleWasPressed = false;
+bool pauseToggleWasPressed = false;
 
 // --- MÁQUINA DE ESTADOS DE JUEGO ---
 enum GameState { STATE_MENU, STATE_LOADING, STATE_RUNNING, STATE_PAUSE, STATE_RETURNING_MENU };
@@ -102,6 +106,9 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
 
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
@@ -150,6 +157,8 @@ int main() {
     Optimization::SceneBounds citySceneBounds;
     PlayerMovementAnimation movementAnimation;
     VehicleController vehicle;
+    TrafficSystem traffic;
+    traffic.Initialize();
     if (!vehicle.InitAudio(&audioEngine)) {
         std::cout << "Advertencia: No se pudieron cargar todos los sonidos del vehiculo." << std::endl;
     }
@@ -177,8 +186,20 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glm::mat4 shadowLightSpaceMatrix(1.0f);
     float nextShadowUpdate = 0.0f;
+    Optimization::RenderSettings cityRenderSettings;
+    cityRenderSettings.maxRenderDistance = 100000.0f;
+    cityRenderSettings.lodNearDistanceMultiplier = 0.08f;
+    cityRenderSettings.lodMidDistanceMultiplier = 0.42f;
+    cityRenderSettings.lodTinyMeshScreenRatio = 0.00055f;
+    cityRenderSettings.lodSmallMeshScreenRatio = 0.00135f;
+    cityRenderSettings.viewportCullPadding = 0.02f;
 
     static std::future<bool> loadFuture;
+    bool worldReady = false;
+    float loadingScreenStartedAt = 0.0f;
+    float loadingReadyAt = -1.0f;
+    loadFuture = std::async(std::launch::async, &PhysicsWorld::LoadCollisionData, &physics, "modelos/city.glb");
+    loadingStarted = true;
 
     // CONFIGURACIÓN DE GEOMETRÍA DEL SKYBOX
     float skyboxVertices[] = {
@@ -198,11 +219,52 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
+    const auto finalizeWorld = [&]() {
+        if (worldReady || !loadFuture.valid() || loadFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            return;
+        }
+
+        const bool loaded = loadFuture.get();
+        if (!loaded || physics.cityCollider.vertices.empty()) {
+            loadingStarted = false;
+            return;
+        }
+
+        currentLoadingProgress = 0.84f;
+        cityMeshBounds = Optimization::BuildMeshBounds(physics.visualMeshes);
+        citySceneBounds = Optimization::BuildSceneBounds(cityMeshBounds);
+        currentLoadingProgress = 0.88f;
+        physics.UploadToGPU();
+        currentLoadingProgress = 0.96f;
+        if (vehicle.Load("modelos/nissan.glb")) {
+            vehicle.UploadToGPU();
+        }
+
+        cameraPos = PLAYER_SPAWN;
+        const glm::vec3 lampCenter(PLAYER_SPAWN.x, PLAYER_SPAWN.y + 2.0f, PLAYER_SPAWN.z);
+        farolesPos[0] = lampCenter + glm::vec3(15.0f, 0.0f, 15.0f);
+        farolesPos[1] = lampCenter + glm::vec3(-15.0f, 0.0f, -15.0f);
+        farolesPos[2] = lampCenter + glm::vec3(15.0f, 0.0f, -15.0f);
+        farolesPos[3] = lampCenter + glm::vec3(-15.0f, 0.0f, 15.0f);
+        yaw = PLAYER_SPAWN_YAW;
+        pitch = PLAYER_SPAWN_PITCH;
+        cameraFront = glm::normalize(glm::vec3(
+            std::cos(glm::radians(yaw)) * std::cos(glm::radians(pitch)),
+            std::sin(glm::radians(pitch)),
+            std::sin(glm::radians(yaw)) * std::cos(glm::radians(pitch))));
+        firstMouse = true;
+        isFlying = false;
+        worldReady = true;
+        currentLoadingProgress = 1.0f;
+        loadingReadyAt = static_cast<float>(glfwGetTime());
+    };
+
     // Cargar texturas del cielo
     // 4. BUCLE PRINCIPAL DE RENDERIZADO
     while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
         float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = currentFrame - lastFrame;
+        deltaTime = std::clamp(currentFrame - lastFrame, 0.0f, 0.05f);
         lastFrame = currentFrame;
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -215,9 +277,15 @@ int main() {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             glClearColor(0.08f, 0.08f, 0.12f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            finalizeWorld();
 
             const MainMenuAction menuAction = mainMenu.Draw(currentFrame);
             if (menuAction == MainMenuAction::Start) {
+                if (worldReady) {
+                    currentLoadingProgress = 1.0f;
+                }
+                loadingScreenStartedAt = currentFrame;
+                loadingReadyAt = worldReady ? currentFrame : -1.0f;
                 currentState = STATE_LOADING;
             }
             else if (menuAction == MainMenuAction::Quit) {
@@ -229,64 +297,36 @@ int main() {
         case STATE_LOADING: {
             glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            loadingScreen.Draw(currentLoadingProgress.load(), currentFrame);
+
+            if (worldReady) {
+                if (loadingReadyAt < 0.0f) {
+                    loadingReadyAt = static_cast<float>(glfwGetTime());
+                }
+                const float entryReadyAt = loadingScreenStartedAt > loadingReadyAt ? loadingScreenStartedAt : loadingReadyAt;
+                if (currentFrame - entryReadyAt >= 0.12f) {
+                    cameraPos = PLAYER_SPAWN;
+                    yaw = PLAYER_SPAWN_YAW;
+                    pitch = PLAYER_SPAWN_PITCH;
+                    cameraFront = glm::normalize(glm::vec3(
+                        std::cos(glm::radians(yaw)),
+                        0.0f,
+                        std::sin(glm::radians(yaw))));
+                    firstMouse = true;
+                    isFlying = false;
+                    environmentAudio.StartAmbient();
+                    vehicle.SetAudioPaused(false);
+                    currentState = STATE_RUNNING;
+                }
+                break;
+            }
 
             if (!loadingStarted) {
                 loadFuture = std::async(std::launch::async, &PhysicsWorld::LoadCollisionData, &physics, "modelos/city.glb");
                 loadingStarted = true;
             }
 
-            loadingScreen.Draw(currentLoadingProgress, currentFrame);
-
-            if (loadFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-                bool exito = loadFuture.get();
-                if (exito && !physics.cityCollider.vertices.empty()) {
-
-                    cityMeshBounds = Optimization::BuildMeshBounds(physics.visualMeshes);
-                    citySceneBounds = Optimization::BuildSceneBounds(cityMeshBounds);
-                    physics.UploadToGPU();
-                    if (vehicle.Load("modelos/nissan.glb")) {
-                        vehicle.UploadToGPU();
-                    }
-
-                    glm::vec3 minBounds = physics.cityCollider.vertices[0];
-                    glm::vec3 maxBounds = physics.cityCollider.vertices[0];
-                    for (const auto& v : physics.cityCollider.vertices) {
-                        if (v.x < minBounds.x) minBounds.x = v.x; if (v.y < minBounds.y) minBounds.y = v.y; if (v.z < minBounds.z) minBounds.z = v.z;
-                        if (v.x > maxBounds.x) maxBounds.x = v.x; if (v.y > maxBounds.y) maxBounds.y = v.y; if (v.z > maxBounds.z) maxBounds.z = v.z;
-                    }
-                    float centroX = (minBounds.x + maxBounds.x) / 2.0f;
-                    float centroZ = (minBounds.z + maxBounds.z) / 2.0f;
-
-                    glm::vec3 origenCielo(centroX, maxBounds.y + 50.0f, centroZ);
-                    float distanciaAlSuelo = 0.0f;
-
-                    if (physics.Raycast(origenCielo, glm::vec3(0.0f, -1.0f, 0.0f), distanciaAlSuelo)) {
-                        float alturaSueloFisico = origenCielo.y - distanciaAlSuelo;
-                        cameraPos = glm::vec3(centroX, alturaSueloFisico + PLAYER_HEIGHT, centroZ);
-
-                        farolesPos[0] = glm::vec3(centroX + 15.0f, alturaSueloFisico + 4.0f, centroZ + 15.0f);
-                        farolesPos[1] = glm::vec3(centroX - 15.0f, alturaSueloFisico + 4.0f, centroZ - 15.0f);
-                        farolesPos[2] = glm::vec3(centroX + 15.0f, alturaSueloFisico + 4.0f, centroZ - 15.0f);
-                        farolesPos[3] = glm::vec3(centroX - 15.0f, alturaSueloFisico + 4.0f, centroZ + 15.0f);
-                    }
-                    else {
-                        cameraPos = glm::vec3(centroX, 10.0f, centroZ);
-                        for (int i = 0; i < 4; i++) farolesPos[i] = glm::vec3(centroX, 14.0f, centroZ);
-                    }
-
-                    cameraPos = PLAYER_SPAWN;
-                    yaw = PLAYER_SPAWN_YAW;
-                    pitch = PLAYER_SPAWN_PITCH;
-                    cameraFront = glm::normalize(glm::vec3(
-                        std::cos(glm::radians(yaw)) * std::cos(glm::radians(pitch)),
-                        std::sin(glm::radians(pitch)),
-                        std::sin(glm::radians(yaw)) * std::cos(glm::radians(pitch))));
-                    firstMouse = true;
-                    isFlying = false;
-                    environmentAudio.StartAmbient();
-                }
-                currentState = STATE_RUNNING;
-            }
+            finalizeWorld();
             break;
         }
 
@@ -296,6 +336,7 @@ int main() {
             // Cambios de ambiente: ver EnvironmentSystem.cpp.
             const EnvironmentFrame environmentFrame = environmentSystem.Update(window, gamepad, deltaTime, currentFrame);
             environmentAudio.Update(environmentFrame, environmentSystem);
+            traffic.Update(deltaTime, physics, cameraPos, cameraFront);
             if (!environmentSystem.IsMenuOpen()) {
                 if (!vehicle.IsDriving()) {
                     GameplayInput::ApplyGamepadCamera(gamepad, deltaTime, yaw, pitch, cameraFront);
@@ -332,15 +373,15 @@ int main() {
             glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+            glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 3000.0f);
             const glm::vec3 animatedCameraPos = cameraPos + movementAnimation.GetCameraOffset();
             glm::mat4 view = glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
-            if (currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
+            if (Localization::shadowsEnabled && currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
                 shadowLightSpaceMatrix = RenderDirectionalShadow(
                     shadowShader, shadowFramebuffer, environmentFrame, animatedCameraPos, cameraFront,
                     physics, cityMeshBounds, citySceneBounds.radius);
-                nextShadowUpdate = currentFrame + (1.0f / 10.0f);
+                nextShadowUpdate = currentFrame + (1.0f / 6.0f);
             }
 
             cityShader.use();
@@ -360,8 +401,9 @@ int main() {
                 animatedCameraPos,
                 cameraFront,
                 citySceneBounds.radius);
-            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
+            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling, cityRenderSettings);
             vehicle.Draw(cityShader);
+            traffic.Draw(cityShader, vehicle, animatedCameraPos);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, animatedCameraPos, currentFrame);
             // Punto central de interaccion: ver InteractionReticle.cpp.
@@ -375,13 +417,16 @@ int main() {
         }
 
         case STATE_PAUSE: {
+            vehicle.SetAudioPaused(true);
+            if (isMovingAudio) { ma_sound_stop(&sfxPasos); isMovingAudio = false; }
+            if (isRunningAudio) { ma_sound_stop(&sfxCorrer); isRunningAudio = false; }
             // Mantenemos el renderizado del mapa estático al fondo para ver los cambios del menú en tiempo real
             const EnvironmentFrame environmentFrame = environmentSystem.BuildFrame(currentFrame);
 
             glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+            glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 3000.0f);
             glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
             cityShader.use();
@@ -401,21 +446,23 @@ int main() {
                 cameraPos,
                 cameraFront,
                 citySceneBounds.radius);
-            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling);
+            Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling, cityRenderSettings);
             vehicle.Draw(cityShader);
+            traffic.Draw(cityShader, vehicle, cameraPos);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, cameraPos, currentFrame);
 
             // --- INTERFAZ DEL MENÚ DE PAUSA ---
             const MainMenuAction pauseAction = mainMenu.DrawPause(environmentSystem);
             if (pauseAction == MainMenuAction::Resume) {
+                vehicle.SetAudioPaused(false);
                 currentState = STATE_RUNNING;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 firstMouse = true;
             }
             else if (pauseAction == MainMenuAction::ReturnToMainMenu) {
+                vehicle.ResetForMainMenu();
                 environmentAudio.StopAmbient();
-                loadingStarted = false;
                 currentLoadingProgress = 0.0f;
                 returnToMenuStartedAt = currentFrame;
                 currentState = STATE_RETURNING_MENU;
@@ -438,7 +485,6 @@ int main() {
 
         UpdateWindowTitle(window, currentFrame);
         glfwSwapBuffers(window);
-        glfwPollEvents();
     }
 
     // 5. LIMPIEZA
@@ -472,19 +518,12 @@ int main() {
 
 void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad, bool vehicleDriving) {
     // --- CONTROL DE PAUSA CON ESCAPE ---
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || gamepad.pauseDown) {
-        if (currentState == STATE_RUNNING) {
-            currentState = STATE_PAUSE;
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Muestra el cursor para ImGui
-            std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Evita rebotes por pulsación larga
-        }
-        else if (currentState == STATE_PAUSE) {
-            currentState = STATE_RUNNING;
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // Oculta el cursor para jugar
-            firstMouse = true; // Evita que la cámara dé un salto brusco al tomar el control del mouse
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
+    const bool pausePressed = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || gamepad.pauseDown;
+    if (pausePressed && !pauseToggleWasPressed && currentState == STATE_RUNNING) {
+        currentState = STATE_PAUSE;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
+    pauseToggleWasPressed = pausePressed;
 
     // Si el juego está en el Menú Principal o en Pausa, no procesamos el movimiento del jugador
     if (currentState != STATE_RUNNING) return;
@@ -624,6 +663,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 }
 
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
+    shader.setVec3("objectTint", glm::vec3(1.0f));
     shader.setVec3("viewPos", viewPosition);
     shader.setVec3("light.direction", frame.activeLightDir);
     shader.setVec3("celestialLightPosition", frame.mainLightPosition);
@@ -640,7 +680,10 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("cloudCoverage", frame.cloudCoverage);
     shader.setFloat("cloudSpeed", frame.cloudSpeed);
     shader.setFloat("cloudDensity", frame.cloudDensity);
-    shader.setFloat("shadowStrength", glm::smoothstep(-0.04f, 0.24f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.98f);
+    const float shadowStrength = Localization::shadowsEnabled
+        ? glm::smoothstep(-0.04f, 0.24f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.98f
+        : 0.0f;
+    shader.setFloat("shadowStrength", shadowStrength);
     shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
 
     const glm::vec3 lampColor(1.0f, 0.60f, 0.20f);
@@ -703,9 +746,12 @@ glm::mat4 RenderDirectionalShadow(
         glm::normalize(shadowCenter - lightPosition),
         sceneRadius);
     Optimization::RenderSettings shadowSettings;
-    shadowSettings.maxRenderDistance = 900.0f;
-    shadowSettings.lodNearDistanceMultiplier = 4.0f;
-    shadowSettings.viewportCullPadding = 0.12f;
+    shadowSettings.maxRenderDistance = 520.0f;
+    shadowSettings.lodNearDistanceMultiplier = 0.10f;
+    shadowSettings.lodMidDistanceMultiplier = 0.30f;
+    shadowSettings.lodTinyMeshScreenRatio = 0.0012f;
+    shadowSettings.lodSmallMeshScreenRatio = 0.0030f;
+    shadowSettings.viewportCullPadding = 0.07f;
     Optimization::DrawCityMeshes(physics.visualMeshes, meshBounds, shadowCulling, shadowSettings);
 
     glDisable(GL_POLYGON_OFFSET_FILL);

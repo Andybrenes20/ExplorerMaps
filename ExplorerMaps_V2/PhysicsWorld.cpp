@@ -1,20 +1,28 @@
 #include "PhysicsWorld.h"
 #include "Optimization.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <iostream>
+#include <utility>
 #include <GL/glew.h>
 #include <assimp/matrix3x3.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 
-extern float currentLoadingProgress;
+extern std::atomic<float> currentLoadingProgress;
 
 namespace {
 constexpr unsigned int COLLISION_FACES_PER_CHUNK = 1024;
 constexpr unsigned int LEGACY_CITY_MESH_COUNT = 2780;
 constexpr float ADDED_CONTENT_SCALE = 100.0f;
+
+struct PackedVertex {
+    glm::vec3 position;
+    glm::vec2 uv;
+    glm::vec3 normal;
+};
 
 glm::vec3 TransformPosition(const aiMatrix4x4& transform, const aiVector3D& position, float scale) {
     return scale * glm::vec3(
@@ -48,13 +56,12 @@ bool PhysicsWorld::LoadVisualData(const std::string& path) {
 }
 
 bool PhysicsWorld::LoadData(const std::string& path) {
-    currentLoadingProgress = 0.01f;
+    currentLoadingProgress = 0.02f;
 
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
         path,
         aiProcess_Triangulate |
-        aiProcess_JoinIdenticalVertices |
         aiProcess_GenSmoothNormals);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
@@ -69,13 +76,27 @@ bool PhysicsWorld::LoadData(const std::string& path) {
     pendingTextures.clear();
     lastRaycastMeshIndex = -1;
 
+    std::size_t totalVertices = 0;
+    std::size_t totalIndices = 0;
+    for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
+        totalVertices += scene->mMeshes[i]->mNumVertices;
+        totalIndices += static_cast<std::size_t>(scene->mMeshes[i]->mNumFaces) * 3;
+    }
+    visualMeshes.reserve(scene->mNumMeshes);
+    if (!visualOnly) {
+        cityCollider.vertices.reserve(totalVertices);
+        cityCollider.indices.reserve(totalIndices);
+        collisionSubMeshes.reserve(totalIndices / (COLLISION_FACES_PER_CHUNK * 3) + scene->mNumMeshes);
+    }
+
     ProcessNode(scene->mRootNode, scene, aiMatrix4x4());
     if (!visualOnly) {
+        currentLoadingProgress = 0.78f;
         const std::size_t acceleratedMeshes = Optimization::BuildCollisionAcceleration(cityCollider, collisionSubMeshes);
         std::cout << "Collision BVH: " << acceleratedMeshes << " mallas pesadas aceleradas." << std::endl;
     }
 
-    currentLoadingProgress = 1.0f;
+    currentLoadingProgress = 0.82f;
     return true; // Terminó la CPU, pero aún falta subir a la GPU
 }
 
@@ -166,6 +187,10 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatri
     RenderMesh currentVisualMesh;
     currentVisualMesh.nodeName = nodeName;
     currentVisualMesh.pivot = TransformPosition(transform, aiVector3D(0.0f), scale);
+    currentVisualMesh.tempVertices.reserve(mesh->mNumVertices);
+    currentVisualMesh.tempUVs.reserve(mesh->mNumVertices);
+    currentVisualMesh.tempNormals.reserve(mesh->mNumVertices);
+    currentVisualMesh.tempIndices.reserve(static_cast<std::size_t>(mesh->mNumFaces) * 3);
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
         currentVisualMesh.tempVertices.push_back(TransformPosition(transform, mesh->mVertices[i], scale));
@@ -231,11 +256,11 @@ void PhysicsWorld::ProcessMesh(aiMesh* mesh, const aiScene* scene, const aiMatri
     }
 
     // NO HAY LLAMADAS A OPENGL AQUÍ
-    visualMeshes.push_back(currentVisualMesh);
-    currentLoadingProgress = std::clamp(
+    visualMeshes.push_back(std::move(currentVisualMesh));
+    currentLoadingProgress = 0.04f + std::clamp(
         static_cast<float>(visualMeshes.size()) / static_cast<float>(scene->mNumMeshes),
         0.0f,
-        0.99f);
+        1.0f) * 0.70f;
 }
 
 // --- NUEVA FUNCIÓN: Toma la RAM y la envía a la VRAM de forma segura ---
@@ -301,25 +326,22 @@ void PhysicsWorld::UploadToGPU() {
 
         glGenVertexArrays(1, &mesh.VAO);
         glGenBuffers(1, &mesh.VBO_Pos);
-        glGenBuffers(1, &mesh.VBO_UV);
-        glGenBuffers(1, &mesh.VBO_Normal);
         glGenBuffers(1, &mesh.EBO);
 
         glBindVertexArray(mesh.VAO);
 
+        std::vector<PackedVertex> packedVertices(mesh.tempVertices.size());
+        for (std::size_t i = 0; i < packedVertices.size(); ++i) {
+            packedVertices[i] = { mesh.tempVertices[i], mesh.tempUVs[i], mesh.tempNormals[i] };
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO_Pos);
-        glBufferData(GL_ARRAY_BUFFER, mesh.tempVertices.size() * sizeof(glm::vec3), mesh.tempVertices.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+        glBufferData(GL_ARRAY_BUFFER, packedVertices.size() * sizeof(PackedVertex), packedVertices.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PackedVertex), reinterpret_cast<void*>(offsetof(PackedVertex, position)));
         glEnableVertexAttribArray(0);
-
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO_UV);
-        glBufferData(GL_ARRAY_BUFFER, mesh.tempUVs.size() * sizeof(glm::vec2), mesh.tempUVs.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(PackedVertex), reinterpret_cast<void*>(offsetof(PackedVertex, uv)));
         glEnableVertexAttribArray(1);
-
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO_Normal);
-        glBufferData(GL_ARRAY_BUFFER, mesh.tempNormals.size() * sizeof(glm::vec3), mesh.tempNormals.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(PackedVertex), reinterpret_cast<void*>(offsetof(PackedVertex, normal)));
         glEnableVertexAttribArray(2);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);

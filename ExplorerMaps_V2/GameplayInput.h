@@ -13,6 +13,7 @@ struct GameplayGamepadInput {
     float leftTrigger = 0.0f;
     float rightTrigger = 0.0f;
     bool interactDown = false;
+    bool handbrakeDown = false;
     bool pauseDown = false;
 };
 

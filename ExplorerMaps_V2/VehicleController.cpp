@@ -88,9 +88,8 @@ void VehicleController::Update(
     }
     interactWasDown = interactDown;
 
-    UpdateGroundPose(city, deltaTime);
-
     if (!driving) {
+        UpdateGroundPose(city, deltaTime);
         UpdateAudio(deltaTime, 0.0f, false);
         return;
     }
@@ -104,12 +103,15 @@ void VehicleController::Update(
     if (gamepad.connected) {
         throttle += gamepad.rightTrigger - gamepad.leftTrigger;
         steerInput -= gamepad.leftX;
+        cameraYaw += gamepad.rightX * 145.0f * deltaTime;
+        cameraPitch -= gamepad.rightY * 95.0f * deltaTime;
     }
+    cameraPitch = std::clamp(cameraPitch, -38.0f, 16.0f);
     throttle = std::clamp(throttle, -1.0f, 1.0f);
     steerInput = std::clamp(steerInput, -1.0f, 1.0f);
 
     throttleSmoothed = MoveTowards(throttleSmoothed, throttle, deltaTime * 3.8f);
-    const bool handbrake = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    const bool handbrake = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || gamepad.handbrakeDown;
     const float forwardSpeed = std::max(speed, 0.0f);
     const float speedRatio = std::clamp(std::abs(speed) / MAX_FORWARD_SPEED, 0.0f, 1.0f);
 
@@ -191,8 +193,15 @@ void VehicleController::Update(
         std::sin(orbitYaw) * std::cos(orbitPitch)));
     const float cameraPullback = glm::mix(8.6f, 11.3f, speedRatio);
     const glm::vec3 target = position + forward * glm::mix(0.0f, 2.4f, speedRatio) + glm::vec3(0.0f, 1.1f, 0.0f);
-    const glm::vec3 desiredCamera = target - orbitDirection * cameraPullback;
-    cameraPosition += (desiredCamera - cameraPosition) * std::clamp(deltaTime * glm::mix(7.5f, 4.5f, speedRatio), 0.0f, 1.0f);
+    glm::vec3 desiredCamera = target - orbitDirection * cameraPullback;
+    glm::vec3 cameraRay = desiredCamera - target;
+    float cameraObstacleDistance = 0.0f;
+    if (glm::length(cameraRay) > 0.001f &&
+        city.Raycast(target, glm::normalize(cameraRay), cameraObstacleDistance) &&
+        cameraObstacleDistance < glm::length(cameraRay)) {
+        desiredCamera = target + glm::normalize(cameraRay) * std::max(cameraObstacleDistance - 0.45f, 1.4f);
+    }
+    cameraPosition += (desiredCamera - cameraPosition) * std::clamp(deltaTime * glm::mix(24.0f, 16.0f, speedRatio), 0.0f, 1.0f);
     cameraFront = glm::normalize(target - cameraPosition);
     playerPosition = cameraPosition;
     UpdateAudio(deltaTime, steerInput, handbrake);
@@ -208,9 +217,9 @@ void VehicleController::UpdateAudio(float deltaTime, float steerInput, bool hand
     const float midWeight = glm::smoothstep(0.18f, 0.52f, engineRpm) * (1.0f - glm::smoothstep(0.56f, 0.92f, engineRpm));
     const float highWeight = glm::smoothstep(0.52f, 0.92f, engineRpm);
     const float load = 0.62f + std::max(throttleSmoothed, 0.0f) * 0.25f;
-    const float idleVolume = driving ? idleWeight * 0.25f * load : 0.0f;
-    const float midVolume = driving ? midWeight * 0.25f * load : 0.0f;
-    const float highVolume = driving ? highWeight * 0.25f * load : 0.0f;
+    const float idleVolume = driving && !audioPaused ? idleWeight * 0.25f * load : 0.0f;
+    const float midVolume = driving && !audioPaused ? midWeight * 0.25f * load : 0.0f;
+    const float highVolume = driving && !audioPaused ? highWeight * 0.25f * load : 0.0f;
 
     if (audioReady[0]) {
         ma_sound_set_volume(&engineIdle, idleVolume);
@@ -224,7 +233,7 @@ void VehicleController::UpdateAudio(float deltaTime, float steerInput, bool hand
         ma_sound_set_volume(&engineHigh, highVolume);
         ma_sound_set_pitch(&engineHigh, 0.86f + engineRpm * 0.24f);
     }
-    const float targetSkid = driving
+    const float targetSkid = driving && !audioPaused
         ? std::clamp((handbrake ? 1.0f : 0.35f) * std::abs(steerInput) * glm::smoothstep(0.18f, 0.75f, speedRatio), 0.0f, 1.0f)
         : 0.0f;
     skidAmount += (targetSkid - skidAmount) * std::clamp(deltaTime * (targetSkid > skidAmount ? 8.0f : 4.0f), 0.0f, 1.0f);
@@ -332,6 +341,33 @@ void VehicleController::Draw(Shader& shader) const {
     shader.setMat4("model", glm::mat4(1.0f));
 }
 
+void VehicleController::DrawReplica(Shader& shader, const glm::vec3& replicaPosition, float replicaYaw, float replicaPitch, float replicaWheelSpin, const glm::vec3& color) const {
+    glm::mat4 bodyTransform(1.0f);
+    bodyTransform = glm::translate(bodyTransform, replicaPosition);
+    bodyTransform = glm::rotate(bodyTransform, replicaYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    bodyTransform = glm::rotate(bodyTransform, replicaPitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    bodyTransform = glm::scale(bodyTransform, glm::vec3(VEHICLE_SCALE));
+
+    shader.setVec3("objectTint", color);
+    for (const RenderMesh& mesh : model.visualMeshes) {
+        glm::mat4 transform = bodyTransform;
+        const bool rotatingWheel = Contains(mesh.nodeName, "Tire_") || Contains(mesh.nodeName, "Rim_") || Contains(mesh.nodeName, "Disk_");
+        if (rotatingWheel) {
+            transform = glm::translate(transform, mesh.pivot);
+            transform = glm::rotate(transform, replicaWheelSpin, glm::vec3(1.0f, 0.0f, 0.0f));
+            transform = glm::translate(transform, -mesh.pivot);
+        }
+
+        shader.setMat4("model", transform);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+        glBindVertexArray(mesh.VAO);
+        glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, nullptr);
+    }
+    shader.setVec3("objectTint", glm::vec3(1.0f));
+    shader.setMat4("model", glm::mat4(1.0f));
+}
+
 void VehicleController::Shutdown() {
     ma_sound* sounds[] = { &engineIdle, &engineMid, &engineHigh, &skidSound };
     for (int i = 0; i < 4; ++i) {
@@ -348,6 +384,31 @@ void VehicleController::Shutdown() {
         glDeleteBuffers(1, &mesh.VBO_Normal);
         glDeleteBuffers(1, &mesh.EBO);
     }
+}
+
+void VehicleController::SetAudioPaused(bool paused) {
+    audioPaused = paused;
+    if (!paused) {
+        return;
+    }
+
+    ma_sound* sounds[] = { &engineIdle, &engineMid, &engineHigh, &skidSound };
+    for (int i = 0; i < 4; ++i) {
+        if (audioReady[i]) {
+            ma_sound_set_volume(sounds[i], 0.0f);
+        }
+    }
+}
+
+void VehicleController::ResetForMainMenu() {
+    driving = false;
+    speed = 0.0f;
+    steering = 0.0f;
+    throttleSmoothed = 0.0f;
+    yawVelocity = 0.0f;
+    engineRpm = 0.0f;
+    skidAmount = 0.0f;
+    SetAudioPaused(true);
 }
 
 bool VehicleController::IsDriving() const {

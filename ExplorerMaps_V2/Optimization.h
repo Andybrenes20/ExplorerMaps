@@ -26,11 +26,11 @@ namespace Optimization {
     };
 
     struct RenderSettings {
-        float maxRenderDistance = 900.0f;
-        float lodNearDistanceMultiplier = 0.22f;
-        float lodMidDistanceMultiplier = 0.46f;
-        float lodTinyMeshScreenRatio = 0.0085f;
-        float lodSmallMeshScreenRatio = 0.0200f;
+        float maxRenderDistance = 100000.0f;
+        float lodNearDistanceMultiplier = 1.0f;
+        float lodMidDistanceMultiplier = 1.0f;
+        float lodTinyMeshScreenRatio = 0.0f;
+        float lodSmallMeshScreenRatio = 0.0f;
         float viewportCullPadding = 0.035f;
         float peripheralLodStart = 0.54f;
         float peripheralLodEnd = 1.0f;
