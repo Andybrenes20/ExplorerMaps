@@ -10,6 +10,10 @@ enum class MainMenuAction {
     None,
     Start,
     Resume,
+    TravelCity,
+    TravelClock,
+    TravelStatue,
+    TravelVolcano,
     ReturnToMainMenu,
     Quit
 };
@@ -39,7 +43,7 @@ private:
     ImFont* bodyFont = nullptr;
     bool creditsOpen = false;
     bool optionsOpen = false;
-    enum class PausePage { Main, Atmosphere, Controls, Options };
+    enum class PausePage { Main, Places, Atmosphere, Controls, Options };
     PausePage pausePage = PausePage::Main;
     enum class OptionsPage { Main, Language };
     OptionsPage optionsPage = OptionsPage::Main;

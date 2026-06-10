@@ -14,10 +14,12 @@ namespace {
     constexpr float kRecycleDistance = 110.0f;
     constexpr float kDrawDistance = 180.0f;
     constexpr float kWheelRadius = 0.33f;
-    constexpr float kGroundOffset = 0.13f;
+    // Matches the visual origin of the shared Nissan model.
+    constexpr float kGroundOffset = 0.04f;
     constexpr float kPlayerHeight = 1.75f;
     constexpr float kRespawnDelay = 0.75f;
-    constexpr float kFollowingDistance = 14.0f;
+    constexpr float kFollowingDistance = 20.0f;
+    constexpr float kPlayerAvoidDistance = 13.0f;
 
     glm::vec3 SnapToStreetAxis(const glm::vec3& direction) {
         return std::abs(direction.x) > std::abs(direction.z)
@@ -27,18 +29,22 @@ namespace {
 }
 
 void TrafficSystem::Initialize() {
-    cars.resize(5);
-    cars[0].color = glm::vec3(0.95f, 0.22f, 0.18f);
-    cars[1].color = glm::vec3(0.20f, 0.48f, 0.95f);
-    cars[2].color = glm::vec3(0.92f, 0.76f, 0.18f);
-    cars[3].color = glm::vec3(0.20f, 0.78f, 0.42f);
-    cars[4].color = glm::vec3(0.82f, 0.30f, 0.88f);
+    cars.resize(7);
+    cars[0].color = glm::vec3(0.72f, 0.12f, 0.10f);
+    cars[1].color = glm::vec3(0.10f, 0.25f, 0.52f);
+    cars[2].color = glm::vec3(0.72f, 0.68f, 0.58f);
+    cars[3].color = glm::vec3(0.10f, 0.12f, 0.14f);
+    cars[4].color = glm::vec3(0.36f, 0.42f, 0.34f);
+    cars[5].color = glm::vec3(0.58f, 0.58f, 0.62f);
+    cars[6].color = glm::vec3(0.38f, 0.16f, 0.12f);
 
     for (std::size_t i = 0; i < cars.size(); ++i) {
         TrafficCar& car = cars[i];
-        car.directionSign = i < 3 ? 1.0f : -1.0f;
+        car.directionSign = i < 4 ? 1.0f : -1.0f;
         car.laneSide = car.directionSign;
-        car.cruiseSpeed = 8.5f + static_cast<float>(i % 3) * 0.75f;
+        car.cruiseSpeed = 7.4f + static_cast<float>((i * 7) % 5) * 0.72f;
+        car.acceleration = 2.2f + static_cast<float>(i % 4) * 0.42f;
+        car.behaviorPhase = static_cast<float>(i) * 1.73f;
         car.speed = car.cruiseSpeed;
     }
 }
@@ -51,13 +57,14 @@ void TrafficSystem::Regenerate(PhysicsWorld& city, const glm::vec3& userPosition
     travelDirection = SnapToStreetAxis(desiredDirection);
     activeZoneCenter = userPosition;
 
-    const float distances[] = { 48.0f, 68.0f, 88.0f, 58.0f, 82.0f };
+    const float distances[] = { 48.0f, 68.0f, 88.0f, 58.0f, 82.0f, 104.0f, 74.0f };
     for (std::size_t i = 0; i < cars.size(); ++i) {
         TrafficCar& car = cars[i];
         car.speed = car.cruiseSpeed;
         car.groundPitch = 0.0f;
         car.groundCheckTimer = 0.0f;
         car.obstacleCheckTimer = 0.0f;
+        car.blockedTimer = 0.0f;
         car.respawnTimer = 0.0f;
         car.respawnDistance = distances[i];
         car.active = FindLaneSpawn(car, city, userPosition, userForward, car.laneSide, car.directionSign, distances[i]);
@@ -87,7 +94,7 @@ bool TrafficSystem::FindLaneSpawn(
         for (float lateral : laneOffsets) {
             const glm::vec3 candidate = userPosition + travelDirection * longitudinal + right * lateral;
             const glm::vec3 toCandidate = glm::normalize(glm::vec3(candidate.x - userPosition.x, 0.0f, candidate.z - userPosition.z));
-            if (glm::dot(toCandidate, flatView) > 0.18f) {
+            if (glm::dot(toCandidate, flatView) > 0.18f && std::abs(longitudinal) < 64.0f) {
                 continue;
             }
 
@@ -137,18 +144,23 @@ bool TrafficSystem::PlaceOnGround(TrafficCar& car, PhysicsWorld& city, bool imme
     const glm::vec3 forward(std::sin(car.yaw), 0.0f, std::cos(car.yaw));
     float centerDistance = 0.0f;
     float frontDistance = 0.0f;
+    float rearDistance = 0.0f;
     const glm::vec3 centerOrigin = car.position + glm::vec3(0.0f, 5.0f, 0.0f);
     const glm::vec3 frontOrigin = centerOrigin + forward * 1.35f;
+    const glm::vec3 rearOrigin = centerOrigin - forward * 1.35f;
     if (!city.Raycast(centerOrigin, glm::vec3(0.0f, -1.0f, 0.0f), centerDistance) || centerDistance > 12.0f ||
-        !city.Raycast(frontOrigin, glm::vec3(0.0f, -1.0f, 0.0f), frontDistance) || frontDistance > 12.0f) {
+        !city.Raycast(frontOrigin, glm::vec3(0.0f, -1.0f, 0.0f), frontDistance) || frontDistance > 12.0f ||
+        !city.Raycast(rearOrigin, glm::vec3(0.0f, -1.0f, 0.0f), rearDistance) || rearDistance > 12.0f) {
         return false;
     }
 
     const float centerY = centerOrigin.y - centerDistance + kGroundOffset;
     const float frontY = frontOrigin.y - frontDistance + kGroundOffset;
-    const float targetPitch = -std::atan2(frontY - centerY, 1.35f);
+    const float rearY = rearOrigin.y - rearDistance + kGroundOffset;
+    const float targetY = (centerY * 2.0f + frontY + rearY) * 0.25f;
+    const float targetPitch = -std::atan2(frontY - rearY, 2.70f);
     const float blend = immediate ? 1.0f : 0.45f;
-    car.position.y += (centerY - car.position.y) * blend;
+    car.position.y += (targetY - car.position.y) * blend;
     car.groundPitch += (targetPitch - car.groundPitch) * blend;
     return true;
 }
@@ -178,7 +190,9 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
             continue;
         }
         const glm::vec3 forward(std::sin(car.yaw), 0.0f, std::cos(car.yaw));
-        float targetSpeed = car.cruiseSpeed;
+        car.behaviorPhase += safeDeltaTime * (0.32f + car.cruiseSpeed * 0.012f);
+        float targetSpeed = car.cruiseSpeed * (0.92f + std::sin(car.behaviorPhase) * 0.08f);
+        bool mustBrake = false;
         for (const TrafficCar& other : cars) {
             if (&other == &car || !other.active || other.directionSign != car.directionSign) {
                 continue;
@@ -187,10 +201,22 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
             const float forwardDistance = glm::dot(separation, forward);
             const float sideDistance = std::abs(glm::dot(separation, glm::vec3(forward.z, 0.0f, -forward.x)));
             if (forwardDistance > 0.0f && forwardDistance < kFollowingDistance && sideDistance < 4.5f) {
-                targetSpeed = std::min(targetSpeed, other.speed * (forwardDistance / kFollowingDistance));
+                const float gap = glm::smoothstep(4.5f, kFollowingDistance, forwardDistance);
+                targetSpeed = std::min(targetSpeed, other.speed * gap);
+                mustBrake = forwardDistance < 8.0f;
             }
         }
-        car.speed += (targetSpeed - car.speed) * std::clamp(safeDeltaTime * 3.5f, 0.0f, 1.0f);
+        const glm::vec3 toPlayer = userPosition - car.position;
+        const float playerAhead = glm::dot(toPlayer, forward);
+        const float playerSide = std::abs(glm::dot(toPlayer, glm::vec3(forward.z, 0.0f, -forward.x)));
+        if (playerAhead > 0.0f && playerAhead < kPlayerAvoidDistance && playerSide < 3.3f) {
+            targetSpeed *= glm::smoothstep(2.5f, kPlayerAvoidDistance, playerAhead);
+            mustBrake = playerAhead < 6.0f;
+        }
+
+        const float response = targetSpeed < car.speed ? (mustBrake ? 7.5f : 4.2f) : car.acceleration;
+        car.speed += (targetSpeed - car.speed) * std::clamp(safeDeltaTime * response, 0.0f, 1.0f);
+        car.speed = std::max(car.speed, 0.0f);
         car.position += forward * car.speed * safeDeltaTime;
         car.wheelSpin += car.speed * safeDeltaTime / kWheelRadius;
         car.groundCheckTimer -= safeDeltaTime;
@@ -203,9 +229,17 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
         }
         if (!recycle && car.obstacleCheckTimer <= 0.0f) {
             float obstacleDistance = 0.0f;
-            recycle = city.Raycast(car.position + glm::vec3(0.0f, 0.8f, 0.0f) + forward * 1.4f, forward, obstacleDistance) &&
-                obstacleDistance < 4.0f;
-            car.obstacleCheckTimer = 0.35f;
+            const bool obstacleAhead = city.Raycast(car.position + glm::vec3(0.0f, 0.8f, 0.0f) + forward * 1.4f, forward, obstacleDistance) &&
+                obstacleDistance < 8.0f;
+            if (obstacleAhead) {
+                car.speed *= 0.32f;
+                car.blockedTimer += 0.32f;
+                recycle = car.blockedTimer > 2.4f;
+            }
+            else {
+                car.blockedTimer = std::max(0.0f, car.blockedTimer - 0.7f);
+            }
+            car.obstacleCheckTimer = 0.32f;
         }
         if (recycle) {
             car.active = FindLaneSpawn(car, city, userPosition, userForward, car.laneSide, car.directionSign, 82.0f);

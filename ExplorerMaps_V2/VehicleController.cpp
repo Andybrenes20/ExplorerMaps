@@ -246,11 +246,13 @@ void VehicleController::UpdateAudio(float deltaTime, float steerInput, bool hand
 void VehicleController::UpdateGroundPose(PhysicsWorld& city, float deltaTime) {
     const glm::vec3 forward(std::sin(yaw), 0.0f, std::cos(yaw));
     const glm::vec3 right(std::cos(yaw), 0.0f, -std::sin(yaw));
-    constexpr float halfWheelbase = 1.38f;
-    constexpr float halfTrack = 0.78f;
-    constexpr float chassisClearance = 0.13f;
+    constexpr float halfWheelbase = 1.38f * VEHICLE_SCALE;
+    constexpr float halfTrack = 0.78f * VEHICLE_SCALE;
+    // The GLB origin already includes the tire radius; keep the visual tires in contact.
+    constexpr float chassisClearance = 0.04f;
 
     float heights[4]{};
+    bool grounded[4]{};
     const glm::vec3 offsets[4] = {
         forward * halfWheelbase - right * halfTrack,
         forward * halfWheelbase + right * halfTrack,
@@ -264,10 +266,8 @@ void VehicleController::UpdateGroundPose(PhysicsWorld& city, float deltaTime) {
         float distance = 0.0f;
         if (city.Raycast(origin, glm::vec3(0.0f, -1.0f, 0.0f), distance) && distance < 8.0f) {
             heights[i] = origin.y - distance;
+            grounded[i] = true;
             ++hits;
-        }
-        else {
-            heights[i] = position.y;
         }
     }
 
@@ -275,29 +275,44 @@ void VehicleController::UpdateGroundPose(PhysicsWorld& city, float deltaTime) {
         return;
     }
 
+    float measuredAverage = 0.0f;
+    for (int i = 0; i < 4; ++i) {
+        if (grounded[i]) {
+            measuredAverage += heights[i];
+        }
+    }
+    measuredAverage /= static_cast<float>(hits);
+    for (int i = 0; i < 4; ++i) {
+        if (!grounded[i]) {
+            heights[i] = measuredAverage;
+        }
+    }
+
     const float frontHeight = (heights[0] + heights[1]) * 0.5f;
     const float rearHeight = (heights[2] + heights[3]) * 0.5f;
     const float leftHeight = (heights[0] + heights[2]) * 0.5f;
     const float rightHeight = (heights[1] + heights[3]) * 0.5f;
     const float averageHeight = (frontHeight + rearHeight) * 0.5f;
-    const float targetPitch = -std::atan2(frontHeight - rearHeight, halfWheelbase * 2.0f);
-    const float targetRoll = std::atan2(rightHeight - leftHeight, halfTrack * 2.0f);
-    const float suspensionBlend = std::clamp(deltaTime * 10.0f, 0.0f, 1.0f);
+    const float targetPitch = std::clamp(-std::atan2(frontHeight - rearHeight, halfWheelbase * 2.0f), -0.42f, 0.42f);
+    const float targetRoll = std::clamp(std::atan2(rightHeight - leftHeight, halfTrack * 2.0f), -0.30f, 0.30f);
+    const float targetHeight = averageHeight + chassisClearance;
+    const float verticalResponse = targetHeight > position.y ? 32.0f : 28.0f;
+    const float suspensionBlend = std::clamp(deltaTime * verticalResponse, 0.0f, 1.0f);
+    const float rotationBlend = std::clamp(deltaTime * 14.0f, 0.0f, 1.0f);
 
-    position.y += (averageHeight + chassisClearance - position.y) * suspensionBlend;
-    groundPitch += (targetPitch - groundPitch) * suspensionBlend;
-    groundRoll += (targetRoll - groundRoll) * suspensionBlend;
+    position.y += (targetHeight - position.y) * suspensionBlend;
+    groundPitch += (targetPitch - groundPitch) * rotationBlend;
+    groundRoll += (targetRoll - groundRoll) * rotationBlend;
 }
 
 void VehicleController::UploadHeadlights(Shader& shader, float nightFactor, float rainIntensity) const {
     const glm::mat4 bodyTransform = BuildBodyTransform();
-    glm::vec3 direction(std::sin(yaw), -0.075f, std::cos(yaw));
-    direction = glm::normalize(direction);
-    const float intensity = std::clamp(nightFactor * 1.18f + rainIntensity * 0.42f, 0.0f, 1.0f);
+    const glm::vec3 direction = glm::normalize(glm::vec3(bodyTransform * glm::vec4(0.0f, -0.10f, 1.0f, 0.0f)));
+    const float intensity = std::clamp(nightFactor * 1.32f + rainIntensity * 0.48f, 0.0f, 1.0f);
 
     shader.setFloat("headlightIntensity", intensity);
-    shader.setVec3("headlights[0].position", glm::vec3(bodyTransform * glm::vec4(-0.52f, 0.48f, 0.12f, 1.0f)));
-    shader.setVec3("headlights[1].position", glm::vec3(bodyTransform * glm::vec4(0.52f, 0.48f, 0.12f, 1.0f)));
+    shader.setVec3("headlights[0].position", glm::vec3(bodyTransform * glm::vec4(-0.48f, 0.34f, 1.18f, 1.0f)));
+    shader.setVec3("headlights[1].position", glm::vec3(bodyTransform * glm::vec4(0.48f, 0.34f, 1.18f, 1.0f)));
     shader.setVec3("headlights[0].direction", direction);
     shader.setVec3("headlights[1].direction", direction);
 }
@@ -331,6 +346,7 @@ glm::mat4 VehicleController::BuildMeshTransform(const RenderMesh& mesh) const {
 }
 
 void VehicleController::Draw(Shader& shader) const {
+    shader.setFloat("vehicleSurface", 1.0f);
     for (const RenderMesh& mesh : model.visualMeshes) {
         shader.setMat4("model", BuildMeshTransform(mesh));
         glActiveTexture(GL_TEXTURE0);
@@ -338,6 +354,7 @@ void VehicleController::Draw(Shader& shader) const {
         glBindVertexArray(mesh.VAO);
         glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, nullptr);
     }
+    shader.setFloat("vehicleSurface", 0.0f);
     shader.setMat4("model", glm::mat4(1.0f));
 }
 
@@ -349,6 +366,7 @@ void VehicleController::DrawReplica(Shader& shader, const glm::vec3& replicaPosi
     bodyTransform = glm::scale(bodyTransform, glm::vec3(VEHICLE_SCALE));
 
     shader.setVec3("objectTint", color);
+    shader.setFloat("vehicleSurface", 1.0f);
     for (const RenderMesh& mesh : model.visualMeshes) {
         glm::mat4 transform = bodyTransform;
         const bool rotatingWheel = Contains(mesh.nodeName, "Tire_") || Contains(mesh.nodeName, "Rim_") || Contains(mesh.nodeName, "Disk_");
@@ -364,6 +382,7 @@ void VehicleController::DrawReplica(Shader& shader, const glm::vec3& replicaPosi
         glBindVertexArray(mesh.VAO);
         glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, nullptr);
     }
+    shader.setFloat("vehicleSurface", 0.0f);
     shader.setVec3("objectTint", glm::vec3(1.0f));
     shader.setMat4("model", glm::mat4(1.0f));
 }

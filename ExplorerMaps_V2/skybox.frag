@@ -92,14 +92,15 @@ vec4 renderClouds(vec3 dir, vec3 sunDirection, float nightAmount, float rain) {
     float edge = clamp(body - core, 0.0, 1.0);
     vec3 cloudBase = mix(vec3(0.52, 0.56, 0.62), vec3(0.76, 0.80, 0.84), high);
     vec3 cloudLight = mix(vec3(1.0, 0.72, 0.42), vec3(1.0, 0.98, 0.90), remap(sunDirection.y, 0.08, 0.72));
-    vec3 dayCloud = mix(cloudBase, cloudLight, high * 0.34 + facingSun * 0.26 + edge * facingSun * 0.42);
-    dayCloud *= 1.0 - selfShadow * 0.22;
+    vec3 dayCloud = mix(cloudBase, cloudLight, high * 0.34 + facingSun * 0.30 + edge * facingSun * 0.52);
+    dayCloud *= 1.0 - selfShadow * 0.30;
     dayCloud = mix(dayCloud, vec3(0.40, 0.45, 0.52), rain * 0.72);
     float moonFacing = smoothstep(-0.35, 0.72, dot(dir, normalize(moonDir)));
     vec3 clearNightCloud = mix(vec3(0.025, 0.035, 0.065), vec3(0.10, 0.13, 0.20), high);
     vec3 rainyNightCloud = mix(vec3(0.018, 0.075, 0.18), vec3(0.08, 0.42, 0.78), high);
     vec3 nightCloud = mix(clearNightCloud, rainyNightCloud, rain * 0.78);
-    nightCloud += mix(vec3(0.035, 0.045, 0.075), vec3(0.03, 0.20, 0.48), rain) * (edge * 0.55 + moonFacing * edge * 0.45);
+    nightCloud += mix(vec3(0.055, 0.060, 0.078), vec3(0.03, 0.20, 0.48), rain) * (edge * 0.62 + moonFacing * edge * 0.56);
+    nightCloud += vec3(0.13, 0.055, 0.018) * edge * (1.0 - high) * nightAmount * (1.0 - rain) * 0.42;
     nightCloud *= 0.72 + core * 0.52;
     vec3 stormCloud = mix(vec3(0.28, 0.32, 0.38), vec3(0.55, 0.59, 0.63), high * 0.65 + facingSun * 0.18);
     vec3 clouds = mix(dayCloud, nightCloud, nightAmount);
@@ -149,7 +150,7 @@ void main() {
 
     vec2 skyUv = vec2(atan(dir.z, dir.x) / 6.2831853 + 0.5, asin(clamp(dir.y, -1.0, 1.0)) / 3.1415926 + 0.5);
     float nightAmount = remap(-sunHeight, 0.05, 0.90) * (1.0 - rain * 0.50);
-    vec3 clearNightSky = mix(vec3(0.004, 0.008, 0.022), vec3(0.020, 0.032, 0.070), vertical);
+    vec3 clearNightSky = mix(vec3(0.006, 0.009, 0.018), vec3(0.022, 0.034, 0.072), vertical);
     vec3 rainyNightSky = mix(vec3(0.003, 0.016, 0.060), vec3(0.018, 0.105, 0.265), vertical);
     vec3 nightSky = mix(clearNightSky, rainyNightSky, rain * 0.82);
     float galacticBand = fbm(skyUv * vec2(4.0, 11.0) + vec2(time * 0.0015, 3.2));
@@ -161,7 +162,10 @@ void main() {
     float moonDot = max(dot(dir, mDir), 0.0);
     nightSky += vec3(0.20, 0.30, 0.55) * pow(moonDot, 42.0) * nightAmount;
     nightSky += vec3(0.95, 0.90, 0.76) * smoothstep(0.9990, 0.99978, moonDot) * nightAmount;
-    nightSky += vec3(0.13, 0.07, 0.035) * (1.0 - smoothstep(0.0, 0.22, abs(dir.y))) * night;
+    float cityHorizon = (1.0 - smoothstep(0.0, 0.24, abs(dir.y))) * night;
+    float cityVariation = 0.72 + fbm(vec2(atan(dir.z, dir.x) * 7.0, 4.0)) * 0.28;
+    nightSky += vec3(0.24, 0.105, 0.035) * cityHorizon * cityVariation * (1.0 - rain * 0.30);
+    nightSky += vec3(0.030, 0.075, 0.16) * cityHorizon * rain * 0.72;
     nightSky = mix(nightSky, vec3(0.08, 0.10, 0.14), rain * night * 0.56);
 
     vec3 sky = mix(daySky, nightSky, night);
@@ -173,9 +177,9 @@ void main() {
     vec3 dayHaze = mix(vec3(0.62, 0.76, 0.92), vec3(1.0, 0.42, 0.18), sunset * (0.44 + smoothstep(-0.10, 0.90, sunSide) * 0.48));
     vec3 nightHaze = mix(vec3(0.035, 0.045, 0.075), vec3(0.025, 0.12, 0.32), rain);
     vec3 atmosphericHaze = mix(dayHaze, nightHaze, night);
-    float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34 + fog * 0.34) * (0.82 + hazeNoise * 0.18);
+    float hazeAmount = horizonHaze * (0.10 + night * 0.11 + rain * 0.34 + fog * 0.34) * (0.82 + hazeNoise * 0.18);
     vec3 generatedFog = mix(vec3(0.64, 0.71, 0.79), vec3(0.07, 0.09, 0.13), night);
-    atmosphericHaze = mix(atmosphericHaze, generatedFog, fog * 0.64);
+    atmosphericHaze = mix(atmosphericHaze, generatedFog, fog * mix(0.64, 0.90, fog));
     sky = mix(sky, atmosphericHaze, clamp(hazeAmount, 0.0, 0.54));
 
     // Keep the celestial bodies readable through the procedural cloud layer.

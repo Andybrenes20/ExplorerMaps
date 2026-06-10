@@ -22,6 +22,7 @@ uniform float cloudDensity;
 uniform vec3 celestialLightPosition;
 uniform float shadowStrength;
 uniform vec3 objectTint;
+uniform float vehicleSurface;
 
 struct DirLight {
     vec3 direction;
@@ -88,17 +89,16 @@ float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
     float bias = mix(0.00105, 0.00018, normalLight);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
-    const vec2 offsets[4] = vec2[](
-        vec2(-0.75, -0.75), vec2(0.75, -0.75),
-        vec2(-0.75, 0.75), vec2(0.75, 0.75));
-    for (int i = 0; i < 4; ++i) {
-        float closestDepth = texture(shadowMap, projected.xy + offsets[i] * texel).r;
-        shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            float closestDepth = texture(shadowMap, projected.xy + vec2(x, y) * texel * 0.82).r;
+            shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
+        }
     }
 
     float edgeDistance = min(min(projected.x, projected.y), min(1.0 - projected.x, 1.0 - projected.y));
     float edgeFade = smoothstep(0.0, 0.035, edgeDistance);
-    return clamp((shadow / 4.0) * shadowStrength * edgeFade, 0.0, 0.97);
+    return clamp((shadow / 9.0) * shadowStrength * edgeFade, 0.0, 0.97);
 }
 
 vec3 tonemap(vec3 color) {
@@ -140,14 +140,19 @@ vec3 vehicleHeadlight(Headlight lamp, vec3 normal, vec3 albedo) {
     float distanceToLight = length(toFragment);
     vec3 beamDirection = normalize(toFragment);
     float coneAngle = dot(beamDirection, normalize(lamp.direction));
-    float cone = smoothstep(0.905, 0.978, coneAngle);
-    float distanceFade = 1.0 - smoothstep(18.0, 52.0, distanceToLight);
-    float attenuation = 1.0 / (1.0 + distanceToLight * 0.035 + distanceToLight * distanceToLight * 0.010);
+    float wideBeam = smoothstep(0.885, 0.965, coneAngle);
+    float beamCore = smoothstep(0.955, 0.992, coneAngle);
+    float distanceFade = 1.0 - smoothstep(28.0, 68.0, distanceToLight);
+    float attenuation = 1.0 / (1.0 + distanceToLight * 0.022 + distanceToLight * distanceToLight * 0.0048);
     vec3 towardLight = normalize(lamp.position - FragPos);
     float diffuse = max(dot(normal, towardLight), 0.0);
-    float forwardFloorFill = smoothstep(0.18, 0.92, normal.y) * cone * 0.16;
-    vec3 warmWhite = mix(vec3(1.0, 0.78, 0.48), vec3(1.0, 0.94, 0.76), rainIntensity);
-    return albedo * warmWhite * (diffuse + forwardFloorFill) * cone * distanceFade * attenuation * 3.8 * headlightIntensity;
+    float roadFacing = smoothstep(0.28, 0.92, normal.y);
+    float roadFill = roadFacing * (wideBeam * 0.28 + beamCore * 0.32);
+    float facadeFill = (1.0 - roadFacing) * diffuse * wideBeam * 0.42;
+    vec3 warmWhite = mix(vec3(1.0, 0.86, 0.66), vec3(0.92, 0.96, 1.0), rainIntensity * 0.70);
+    vec3 beam = albedo * warmWhite * (diffuse * wideBeam + roadFill + facadeFill);
+    beam += warmWhite * beamCore * roadFacing * (0.10 + rainIntensity * 0.16);
+    return beam * distanceFade * attenuation * 6.2 * headlightIntensity;
 }
 
 void main() {
@@ -218,7 +223,8 @@ void main() {
     float groundBounce = clamp(-normal.y * 0.5 + 0.5, 0.0, 1.0);
     float lowerFacade = facadeMask * (1.0 - smoothstep(4.0, 44.0, FragPos.y));
     float downwardCrease = smoothstep(0.12, 0.82, -normal.y);
-    float cheapOcclusion = clamp(1.0 - textureEdge * 0.68 - lowerFacade * 0.10 - downwardCrease * 0.14, 0.54, 1.0);
+    float urbanCanyon = facadeMask * (1.0 - smoothstep(8.0, 62.0, FragPos.y)) * (0.55 + broadSurface * 0.45);
+    float cheapOcclusion = clamp(1.0 - textureEdge * 0.72 - lowerFacade * 0.15 - downwardCrease * 0.18 - urbanCanyon * 0.08, 0.46, 1.0);
     float dayFacadeAmbient = mix(1.0, 0.58 + hemi * 0.20, facadeMask * day * (1.0 - rain * 0.45));
     vec3 ambientTerm = (light.ambient * (0.72 + hemi * 0.42) + skyBounce * (0.11 + hemi * 0.16)) * dayFacadeAmbient;
     ambientTerm += vec3(0.12, 0.10, 0.08) * groundBounce * (0.10 + day * 0.10);
@@ -232,8 +238,13 @@ void main() {
     geometryShadow = clamp(geometryShadow + streetShadow * 0.12, 0.0, 0.98);
     float shadowAmbientLoss = geometryShadow * mix(0.52, 0.48, facadeMask) * (1.0 - rain * 0.40);
     ambientTerm *= 1.0 - shadowAmbientLoss;
-    vec3 directTerm = light.diffuse * directionalShape * (0.52 + day * 0.46) * (1.0 - cloudShadow) * (1.0 - geometryShadow);
+    float exposedSun = directionalShape * (1.0 - cloudShadow) * (1.0 - geometryShadow);
+    vec3 directTerm = light.diffuse * exposedSun * (0.48 + day * 0.40);
     vec3 lit = albedo * (ambientTerm + directTerm);
+    vec3 warmCityBounce = vec3(0.34, 0.15, 0.055) * night;
+    vec3 coolMoonBounce = mix(vec3(0.035, 0.050, 0.090), vec3(0.025, 0.105, 0.245), rain) * night;
+    lit += albedo * warmCityBounce * (lowerFacade * 0.20 + horizontalSurface * 0.055);
+    lit += albedo * coolMoonBounce * (hemi * 0.34 + facadeMask * 0.08);
     vec3 orientationTint = mix(vec3(0.76, 0.84, 1.0), vec3(1.0, 0.88, 0.72), sunFacing);
     lit *= mix(vec3(1.0), orientationTint, facadeMask * day * (0.055 + golden * 0.10));
     lit += albedo * light.diffuse * concreteMask * sunFacing * textureEdge * 0.12;
@@ -244,7 +255,7 @@ void main() {
     lit *= 1.0 - shadowSide * shadowContrast;
     lit += skyBounce * shadowSide * (0.035 + golden * 0.030);
     lit += skyBounce * geometryShadow * facadeMask * 0.018;
-    float contactWeight = geometryShadow * (0.30 + facadeMask * 0.22 + horizontalSurface * 0.28) * (1.0 - rain * 0.35);
+    float contactWeight = geometryShadow * (0.34 + facadeMask * 0.25 + horizontalSurface * 0.34) * (1.0 - rain * 0.35);
     lit *= 1.0 - contactWeight;
     lit += mix(vec3(0.008, 0.010, 0.016), skyBounce * 0.065, rain) * geometryShadow * (1.0 - horizontalSurface * 0.30);
     lit += albedo * vec3(0.34, 0.12, 0.025) * sunFacing * golden * 0.16;
@@ -303,9 +314,9 @@ void main() {
         float windowMask = pane * band * column * step(0.34, seed) * smoothstep(0.04, 0.68, windowLightIntensity);
         vec3 windowColor = mix(vec3(1.0, 0.56, 0.24), vec3(1.0, 0.88, 0.58), hash31(cell + 17.0));
         vec3 windowGlow = windowColor * windowMask * (0.92 + night * 1.55 + rain * 0.35);
-        float neon = saturatedMask(base) * verticalSurface * night;
+        float neon = saturatedMask(base) * verticalSurface * night * (1.0 - vehicleSurface);
         vec3 neonColor = base * base * (1.4 + rain * 0.5);
-        lit += windowGlow;
+        lit += windowGlow * (1.0 - vehicleSurface);
         lit += windowColor * pane * step(0.47, seed) * exp(-(local.y * local.y) * 20.0) * windowLightIntensity * 0.012;
         lit += neonColor * neon * (0.85 + rain * 0.45);
         lit += windowColor * cleanRoad * rain * night * (0.018 + windowLightIntensity * 0.028) *
@@ -330,7 +341,8 @@ void main() {
     vec3 viewDelta = viewPos - FragPos;
     float viewDistance = length(viewDelta);
     float flatDistance = length(viewDelta.xz);
-    float fogDensity = mix(0.00028, 0.00052, night) + rain * 0.00072 + fogAmount * 0.00135;
+    float denseFog = fogAmount * fogAmount;
+    float fogDensity = mix(0.00028, 0.00052, night) + rain * 0.00072 + fogAmount * 0.00115 + denseFog * 0.00235;
     float distanceFog = 1.0 - exp(-viewDistance * fogDensity);
     distanceFog = clamp(distanceFog * distanceFog * mix(0.82, 1.28, night + rain * 0.35), 0.0, mix(0.38, 0.62, night) + rain * 0.14 + fogAmount * 0.16);
 
@@ -341,7 +353,7 @@ void main() {
     fogBank = smoothstep(0.24, 0.78, fogBank) * fogAmount;
     float streetHaze = smoothstep(28.0, 240.0, flatDistance) * lowAltitude * (0.025 + night * 0.035 + rain * 0.22 + fogBank * 0.30);
     float hazeVariation = 0.84 + 0.16 * sin(FragPos.x * 0.018 + FragPos.z * 0.013 + time * 0.08);
-    distanceFog = clamp(distanceFog + streetHaze * hazeVariation, 0.0, 0.76);
+    distanceFog = clamp(distanceFog + streetHaze * hazeVariation, 0.0, mix(0.76, 0.94, denseFog));
     vec3 fogDay = mix(vec3(0.76, 0.84, 0.93), vec3(0.96, 0.70, 0.45), golden * 0.55);
     vec3 fogNight = mix(vec3(0.045, 0.052, 0.072), vec3(0.025, 0.075, 0.18), rain);
     vec3 fogRain = vec3(0.29, 0.34, 0.40);
@@ -351,7 +363,13 @@ void main() {
     fog += mix(vec3(0.006, 0.008, 0.014), vec3(0.018, 0.055, 0.13), rain) * night;
     lit = mix(lit, fog, distanceFog);
 
-    lit = tonemap(lit * mix(0.88, 1.08, night));
+    // Preserve texture detail on fully sunlit surfaces before the SDR tonemap.
+    float preToneLuma = dot(lit, vec3(0.2126, 0.7152, 0.0722));
+    float sunHighlight = smoothstep(0.78, 1.85, preToneLuma) * exposedSun * day * (1.0 - rain * 0.55);
+    lit *= mix(1.0, 0.72, sunHighlight);
+    float vehicleHighlight = vehicleSurface * smoothstep(0.68, 1.45, dot(lit, vec3(0.2126, 0.7152, 0.0722)));
+    lit *= mix(1.0, 0.78, vehicleHighlight);
+    lit = tonemap(lit * mix(0.82, 1.12, night));
     float gradedLuma = dot(lit, vec3(0.299, 0.587, 0.114));
     lit = mix(vec3(gradedLuma), lit, mix(1.05, mix(1.12, 1.28, rain), night));
     lit = clamp((lit - 0.5) * 1.04 + 0.5, 0.0, 1.0);

@@ -42,7 +42,17 @@ const float PLAYER_HEIGHT = 1.75f;
 const glm::vec3 PLAYER_SPAWN = glm::vec3(304.1f, 37.8f, 143.5f);
 const float PLAYER_SPAWN_YAW = -90.0f;
 const float PLAYER_SPAWN_PITCH = 0.0f;
-const unsigned int SHADOW_MAP_SIZE = 1024;
+const unsigned int SHADOW_MAP_SIZE = 1536;
+
+struct TravelDestination {
+    glm::vec3 position;
+    glm::vec3 lookAt;
+};
+
+const TravelDestination TRAVEL_CITY = { PLAYER_SPAWN, PLAYER_SPAWN + glm::vec3(0.0f, 0.0f, -20.0f) };
+const TravelDestination TRAVEL_CLOCK = { glm::vec3(180.3f, 52.8f, 193.2f), glm::vec3(179.65f, 72.0f, 223.75f) };
+const TravelDestination TRAVEL_STATUE = { glm::vec3(-430.7f, 391.9f, 885.4f), glm::vec3(-430.7f, 393.0f, 915.0f) };
+const TravelDestination TRAVEL_VOLCANO = { glm::vec3(-630.5f, 37.8f, -145.6f), glm::vec3(-790.0f, 78.0f, -160.0f) };
 
 // --- VARIABLES DE BARRA DE PROGRESO (HILOS ATÓMICOS COMBINADOS) ---
 std::atomic<float> currentLoadingProgress{ 0.0f };
@@ -80,7 +90,7 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 // --- VARIABLES INTERACCIÓN FICHAS PROCEDURALES ---
-enum MonumentType { MONUMENT_NONE, MONUMENT_RELOJ, MONUMENT_VOLCAN };
+enum MonumentType { MONUMENT_NONE, MONUMENT_RELOJ, MONUMENT_CRISTO, MONUMENT_VOLCAN };
 bool showFicha = false;
 bool e_pressed_last_frame = false;
 MonumentType activeMonument = MONUMENT_NONE;
@@ -97,8 +107,10 @@ glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, cons
 
 // Controles geográficos de tu lógica sin texturas viejas
 bool IsPlayerInBuildingZone(glm::vec3 playerPos);
+bool IsPlayerInChristZone(glm::vec3 playerPos);
 bool IsPlayerInVolcanoZone(glm::vec3 playerPos);
 void DrawProgrammedMonumentFicha(MonumentType type);
+void TravelTo(const TravelDestination& destination);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -390,8 +402,9 @@ int main() {
             const glm::vec3 animatedCameraPos = cameraPos + movementAnimation.GetCameraOffset();
             glm::mat4 view = glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
-
-            if (Localization::shadowsEnabled && currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
+            const bool directionalShadowVisible =
+                environmentFrame.sunHeight > -0.08f || environmentFrame.nightFactor > 0.18f;
+            if (Localization::shadowsEnabled && currentFrame >= nextShadowUpdate && directionalShadowVisible) {
                 shadowLightSpaceMatrix = RenderDirectionalShadow(
                     shadowShader, shadowFramebuffer, environmentFrame, animatedCameraPos, cameraFront,
                     physics, cityMeshBounds, citySceneBounds.radius);
@@ -426,10 +439,11 @@ int main() {
 
             // --- COMBINACIÓN: LOGICA DE FICHAS PROCEDURALES ESTILIZADAS ---
             bool inBuilding = IsPlayerInBuildingZone(cameraPos);
+            bool inChrist = IsPlayerInChristZone(cameraPos);
             bool inVolcano = IsPlayerInVolcanoZone(cameraPos);
 
-            if (inBuilding || inVolcano) {
-                activeMonument = inBuilding ? MONUMENT_RELOJ : MONUMENT_VOLCAN;
+            if (inBuilding || inChrist || inVolcano) {
+                activeMonument = inBuilding ? MONUMENT_RELOJ : (inChrist ? MONUMENT_CRISTO : MONUMENT_VOLCAN);
 
                 if (!showFicha) {
                     // Mejora estética del prompt: pill oscuro con indicador [E] estilizado
@@ -537,6 +551,20 @@ int main() {
                 currentState = STATE_RUNNING;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 firstMouse = true;
+            }
+            else if (pauseAction == MainMenuAction::TravelCity ||
+                pauseAction == MainMenuAction::TravelClock ||
+                pauseAction == MainMenuAction::TravelStatue ||
+                pauseAction == MainMenuAction::TravelVolcano) {
+                vehicle.ResetForMainMenu();
+                const TravelDestination* destination = &TRAVEL_CITY;
+                if (pauseAction == MainMenuAction::TravelClock) destination = &TRAVEL_CLOCK;
+                else if (pauseAction == MainMenuAction::TravelStatue) destination = &TRAVEL_STATUE;
+                else if (pauseAction == MainMenuAction::TravelVolcano) destination = &TRAVEL_VOLCANO;
+                TravelTo(*destination);
+                vehicle.SetAudioPaused(false);
+                currentState = STATE_RUNNING;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             }
             else if (pauseAction == MainMenuAction::ReturnToMainMenu) {
                 vehicle.ResetForMainMenu();
@@ -737,6 +765,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
     shader.setVec3("objectTint", glm::vec3(1.0f));
+    shader.setFloat("vehicleSurface", 0.0f);
     shader.setVec3("viewPos", viewPosition);
     shader.setVec3("light.direction", frame.activeLightDir);
     shader.setVec3("celestialLightPosition", frame.mainLightPosition);
@@ -753,9 +782,11 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("cloudCoverage", frame.cloudCoverage);
     shader.setFloat("cloudSpeed", frame.cloudSpeed);
     shader.setFloat("cloudDensity", frame.cloudDensity);
-
+    const float sunShadow = glm::smoothstep(-0.06f, 0.16f, frame.sunHeight) *
+        glm::mix(0.74f, 0.98f, glm::smoothstep(0.0f, 0.62f, frame.sunHeight));
+    const float moonShadow = glm::smoothstep(0.10f, 0.82f, frame.nightFactor) * 0.42f;
     const float shadowStrength = Localization::shadowsEnabled
-        ? glm::smoothstep(-0.04f, 0.24f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.98f
+        ? (std::max)(sunShadow, moonShadow) * (1.0f - frame.rainIntensity * 0.52f)
         : 0.0f;
     shader.setFloat("shadowStrength", shadowStrength);
     shader.setFloat("pointLightIntensity", frame.streetlightIntensity);
@@ -773,10 +804,18 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     }
 }
 
-glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius) {
-    glm::vec3 shadowCenter = cameraPosition + cameraForward * 48.0f;
-    constexpr float shadowHalfWidth = 112.0f;
-    constexpr float shadowHalfHeight = 94.0f;
+glm::mat4 RenderDirectionalShadow(
+    Shader& shader,
+    unsigned int framebuffer,
+    const EnvironmentFrame& frame,
+    const glm::vec3& cameraPosition,
+    const glm::vec3& cameraForward,
+    const PhysicsWorld& physics,
+    const std::vector<Optimization::MeshBounds>& meshBounds,
+    float sceneRadius) {
+    glm::vec3 shadowCenter = cameraPosition + cameraForward * 38.0f;
+    constexpr float shadowHalfWidth = 86.0f;
+    constexpr float shadowHalfHeight = 72.0f;
     const float shadowWorldTexel = (shadowHalfWidth * 2.0f) / static_cast<float>(SHADOW_MAP_SIZE);
     shadowCenter.x = std::floor(shadowCenter.x / shadowWorldTexel) * shadowWorldTexel;
     shadowCenter.z = std::floor(shadowCenter.z / shadowWorldTexel) * shadowWorldTexel;
@@ -846,6 +885,18 @@ void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFra
     glDepthFunc(GL_LESS);
 }
 
+void TravelTo(const TravelDestination& destination) {
+    cameraPos = destination.position;
+    cameraFront = glm::normalize(destination.lookAt - destination.position);
+    yaw = glm::degrees(std::atan2(cameraFront.z, cameraFront.x));
+    pitch = glm::degrees(std::asin(glm::clamp(cameraFront.y, -1.0f, 1.0f)));
+    firstMouse = true;
+    isFlying = false;
+    showFicha = false;
+    e_pressed_last_frame = false;
+    activeMonument = MONUMENT_NONE;
+}
+
 // --- LOGICA DE DETECCION DE ZONAS GEOGRAFICAS ---
 bool IsPlayerInBuildingZone(glm::vec3 playerPos) {
     bool enAltura = playerPos.y >= 51.0f;
@@ -860,6 +911,14 @@ bool IsPlayerInBuildingZone(glm::vec3 playerPos) {
     float distanciaCuadrada = (distanciaX * distanciaX) + (distanciaZ * distanciaZ);
 
     return distanciaCuadrada <= (radioCilindro * radioCilindro);
+}
+
+bool IsPlayerInChristZone(glm::vec3 playerPos) {
+    const glm::vec3 monumentCenter(-430.7f, 391.9f, 915.0f);
+    const glm::vec2 horizontalOffset(playerPos.x - monumentCenter.x, playerPos.z - monumentCenter.z);
+    return playerPos.y >= 375.0f &&
+        playerPos.y <= 430.0f &&
+        glm::dot(horizontalOffset, horizontalOffset) <= 72.0f * 72.0f;
 }
 
 bool IsPlayerInVolcanoZone(glm::vec3 playerPos) {
@@ -888,6 +947,12 @@ void DrawProgrammedMonumentFicha(MonumentType type) {
         desc = "Construido en 1935, esta torre de 15.5 metros es el segundo monumento mas importante de la ciudad. Su estructura fue declarada Patrimonio Cultural en 2002.";
         headerColor = ImVec4(0.98f, 0.73f, 0.05f, 1.0f);
         panelHeight = 380.0f;
+    }
+    else if (type == MONUMENT_CRISTO) {
+        title = "CRISTO REDENTOR";
+        desc = "Inspirado en el celebre monumento del Cristo Redentor de Rio de Janeiro, representa a Jesucristo con los brazos abiertos como simbolo de paz, proteccion y bienvenida. Su ubicacion elevada permite contemplar el paisaje y convierte la estatua en un punto de referencia visible desde gran distancia.";
+        headerColor = ImVec4(0.42f, 0.78f, 1.00f, 1.0f);
+        panelHeight = 470.0f;
     }
     else if (type == MONUMENT_VOLCAN) {
         title = "VOLCAN MASAYA";

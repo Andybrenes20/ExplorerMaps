@@ -23,6 +23,9 @@ private:
         float groundPitch = 0.0f;
         float groundCheckTimer = 0.0f;
         float obstacleCheckTimer = 0.0f;
+        float blockedTimer = 0.0f;
+        float behaviorPhase = 0.0f;
+        float acceleration = 2.8f;
         float respawnTimer = 0.0f;
         float respawnDistance = 72.0f;
         float directionSign = 1.0f;

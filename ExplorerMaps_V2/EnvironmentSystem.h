@@ -63,7 +63,11 @@ private:
     float celestialDay = 0.0f;
     float rainTarget = 0.0f;
     float rainSmoothed = 0.0f;
+    float fogTarget = 0.0f;
     float fogSmoothed = 0.0f;
+    float nextFogEventTime = 18.0f;
+    float fogEventEndTime = 0.0f;
+    float fogEventStrength = 0.0f;
     float lightningStart = -10.0f;
     float lightningDuration = 0.0f;
     float lightningStrength = 0.0f;
