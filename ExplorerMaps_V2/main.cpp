@@ -44,7 +44,7 @@ const float PLAYER_SPAWN_YAW = -90.0f;
 const float PLAYER_SPAWN_PITCH = 0.0f;
 const unsigned int SHADOW_MAP_SIZE = 1024;
 
-// --- VARIABLES DE BARRA DE PROGRESO ---
+// --- VARIABLES DE BARRA DE PROGRESO (HILOS ATÓMICOS COMBINADOS) ---
 std::atomic<float> currentLoadingProgress{ 0.0f };
 bool loadingStarted = false;
 
@@ -64,7 +64,7 @@ GameState currentState = STATE_MENU;
 float returnToMenuStartedAt = 0.0f;
 
 // --- SISTEMA DE LUCES URBANAS ---
-glm::vec3 farolesPos[4]; // Posiciones de los faroles
+glm::vec3 farolesPos[4];
 
 // --- VARIABLES DE CÁMARA (FPS) ---
 glm::vec3 cameraPos = glm::vec3(0.0f, 10.0f, 0.0f);
@@ -79,6 +79,12 @@ float lastY = SCR_HEIGHT / 2.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+// --- VARIABLES INTERACCIÓN FICHAS PROCEDURALES ---
+enum MonumentType { MONUMENT_NONE, MONUMENT_RELOJ, MONUMENT_VOLCAN };
+bool showFicha = false;
+bool e_pressed_last_frame = false;
+MonumentType activeMonument = MONUMENT_NONE;
+
 // --- DECLARACIÓN DE FUNCIONES ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
@@ -88,6 +94,11 @@ void UpdateWindowTitle(GLFWwindow* window, float currentFrame);
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame);
 void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame);
 glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius);
+
+// Controles geográficos de tu lógica sin texturas viejas
+bool IsPlayerInBuildingZone(glm::vec3 playerPos);
+bool IsPlayerInVolcanoZone(glm::vec3 playerPos);
+void DrawProgrammedMonumentFicha(MonumentType type);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -149,7 +160,7 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    // Instanciar mundos físicos y Shaders
+    // Instanciar mundos físicos, Tráfico de compañeros y Shaders
     unsigned int skyboxVAO, skyboxVBO;
 
     PhysicsWorld physics;
@@ -186,6 +197,8 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glm::mat4 shadowLightSpaceMatrix(1.0f);
     float nextShadowUpdate = 0.0f;
+
+    // Configuración de optimización del Pull
     Optimization::RenderSettings cityRenderSettings;
     cityRenderSettings.maxRenderDistance = 100000.0f;
     cityRenderSettings.lodNearDistanceMultiplier = 0.08f;
@@ -245,7 +258,7 @@ int main() {
         farolesPos[0] = lampCenter + glm::vec3(15.0f, 0.0f, 15.0f);
         farolesPos[1] = lampCenter + glm::vec3(-15.0f, 0.0f, -15.0f);
         farolesPos[2] = lampCenter + glm::vec3(15.0f, 0.0f, -15.0f);
-        farolesPos[3] = lampCenter + glm::vec3(-15.0f, 0.0f, 15.0f);
+        farolesPos[3] = lampCenter + glm::vec3(15.0f, 0.0f, 15.0f);
         yaw = PLAYER_SPAWN_YAW;
         pitch = PLAYER_SPAWN_PITCH;
         cameraFront = glm::normalize(glm::vec3(
@@ -257,9 +270,8 @@ int main() {
         worldReady = true;
         currentLoadingProgress = 1.0f;
         loadingReadyAt = static_cast<float>(glfwGetTime());
-    };
+        };
 
-    // Cargar texturas del cielo
     // 4. BUCLE PRINCIPAL DE RENDERIZADO
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -333,10 +345,11 @@ int main() {
         case STATE_RUNNING: {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             const GameplayGamepadInput gamepad = GameplayInput::ReadGamepad();
-            // Cambios de ambiente: ver EnvironmentSystem.cpp.
+
             const EnvironmentFrame environmentFrame = environmentSystem.Update(window, gamepad, deltaTime, currentFrame);
             environmentAudio.Update(environmentFrame, environmentSystem);
             traffic.Update(deltaTime, physics, cameraPos, cameraFront);
+
             if (!environmentSystem.IsMenuOpen()) {
                 if (!vehicle.IsDriving()) {
                     GameplayInput::ApplyGamepadCamera(gamepad, deltaTime, yaw, pitch, cameraFront);
@@ -344,10 +357,10 @@ int main() {
                 vehicle.Update(window, gamepad, deltaTime, physics, cameraPos, cameraPos, cameraFront, yaw, pitch);
                 processInput(window, physics, gamepad, vehicle.IsDriving());
             }
-            // Animacion de caminar/correr: ver PlayerMovementAnimation.cpp.
+
             movementAnimation.Update(window, environmentSystem.IsMenuOpen() ? GameplayGamepadInput{} : gamepad, deltaTime, cameraFront, cameraUp, !isFlying && !vehicle.IsDriving());
 
-            // Gravedad
+            // Gravedad del mundo unificado
             if (!isFlying && !vehicle.IsDriving()) {
                 float distanceToGround = 0.0f;
                 glm::vec3 rayOrigin = cameraPos;
@@ -377,6 +390,7 @@ int main() {
             const glm::vec3 animatedCameraPos = cameraPos + movementAnimation.GetCameraOffset();
             glm::mat4 view = glm::lookAt(animatedCameraPos, animatedCameraPos + cameraFront, cameraUp);
             glm::mat4 model = glm::mat4(1.0f);
+
             if (Localization::shadowsEnabled && currentFrame >= nextShadowUpdate && environmentFrame.sunHeight > -0.05f) {
                 shadowLightSpaceMatrix = RenderDirectionalShadow(
                     shadowShader, shadowFramebuffer, environmentFrame, animatedCameraPos, cameraFront,
@@ -396,22 +410,91 @@ int main() {
             glBindTexture(GL_TEXTURE_2D, shadowTexture);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
-                projection,
-                view,
-                animatedCameraPos,
-                cameraFront,
-                citySceneBounds.radius);
+                projection, view, animatedCameraPos, cameraFront, citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling, cityRenderSettings);
             vehicle.Draw(cityShader);
             traffic.Draw(cityShader, vehicle, animatedCameraPos);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, animatedCameraPos, currentFrame);
-            // Punto central de interaccion: ver InteractionReticle.cpp.
+
+            // Retícula e Interfaz de Clima
             InteractionReticle::DrawCenterDot(
                 static_cast<float>(SCR_WIDTH),
                 static_cast<float>(SCR_HEIGHT),
                 gamepad.interactDown || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
             WeatherOverlay::Draw(environmentFrame, currentFrame, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+
+            // --- COMBINACIÓN: LOGICA DE FICHAS PROCEDURALES ESTILIZADAS ---
+            bool inBuilding = IsPlayerInBuildingZone(cameraPos);
+            bool inVolcano = IsPlayerInVolcanoZone(cameraPos);
+
+            if (inBuilding || inVolcano) {
+                activeMonument = inBuilding ? MONUMENT_RELOJ : MONUMENT_VOLCAN;
+
+                if (!showFicha) {
+                    // Mejora estética del prompt: pill oscuro con indicador [E] estilizado
+                    ImGui::SetNextWindowPos(ImVec2(SCR_WIDTH / 2.0f, SCR_HEIGHT * 0.78f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                    ImGui::Begin("InteractPrompt", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+
+
+                    ImVec2 padding = ImVec2(22.0f, 10.0f);
+                    const char* labelA = "SELECCIONE ";
+                    const char* labelB = " PARA INSPECCIONAR MONUMENTO";
+                    ImVec2 aSize = ImGui::CalcTextSize(labelA);
+                    ImVec2 bSize = ImGui::CalcTextSize(labelB);
+                    ImVec2 keySize = ImGui::CalcTextSize("E");
+                    float totalW = aSize.x + keySize.x + 24.0f + bSize.x + padding.x * 2; // 24 for key padding
+                    float totalH = keySize.y + padding.y * 2;
+
+                    // Force the window to occupy the needed area so GetWindowPos/size are meaningful
+                    ImGui::Dummy(ImVec2(totalW, totalH));
+
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    ImVec2 winPos = ImGui::GetWindowPos();
+                    ImVec2 pMin = ImVec2(winPos.x, winPos.y);
+                    ImVec2 pMax = ImVec2(winPos.x + totalW, winPos.y + totalH);
+
+                    // Center the pill horizontally around the window area
+                    // (window was already positioned by SetNextWindowPos)
+                    // Background pill
+                    drawList->AddRectFilled(pMin, pMax, IM_COL32(14, 18, 28, 220), 10.0f);
+                    drawList->AddRect(pMin, pMax, IM_COL32(60, 160, 255, 120), 10.0f, 0, 1.25f);
+
+                    // Text positions
+                    ImVec2 textPos = ImVec2(pMin.x + padding.x, pMin.y + padding.y);
+                    drawList->AddText(textPos, IM_COL32(230, 230, 240, 255), labelA);
+
+                    // Key pill
+                    ImVec2 keyP0 = ImVec2(textPos.x + aSize.x + 6.0f, pMin.y + padding.y - 2.0f);
+                    ImVec2 keyP1 = ImVec2(keyP0.x + keySize.x + 14.0f, keyP0.y + keySize.y + 6.0f);
+                    drawList->AddRectFilled(keyP0, keyP1, IM_COL32(10, 120, 200, 255), 6.0f);
+                    drawList->AddRect(keyP0, keyP1, IM_COL32(255, 255, 255, 40), 6.0f, 0, 1.0f);
+                    ImVec2 keyTextPos = ImVec2(keyP0.x + 7.0f, keyP0.y + 4.0f);
+                    drawList->AddText(keyTextPos, IM_COL32(245, 245, 245, 255), "E");
+
+                    ImVec2 afterKeyPos = ImVec2(keyP1.x + 8.0f, textPos.y);
+                    drawList->AddText(afterKeyPos, IM_COL32(230, 230, 240, 255), labelB);
+
+                    ImGui::End();
+                }
+
+                bool e_pressed_now = (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) || gamepad.interactDown;
+                if (e_pressed_now && !e_pressed_last_frame) {
+                    showFicha = !showFicha;
+                }
+                e_pressed_last_frame = e_pressed_now;
+            }
+            else {
+                showFicha = false;
+                e_pressed_last_frame = false;
+                activeMonument = MONUMENT_NONE;
+            }
+
+            if (showFicha && activeMonument != MONUMENT_NONE) {
+                DrawProgrammedMonumentFicha(activeMonument);
+            }
+            // --- FIN LOGICA DE FICHAS PROCEDURALES ---
+
             mainMenu.DrawEnvironmentMenu(environmentSystem);
             break;
         }
@@ -420,7 +503,7 @@ int main() {
             vehicle.SetAudioPaused(true);
             if (isMovingAudio) { ma_sound_stop(&sfxPasos); isMovingAudio = false; }
             if (isRunningAudio) { ma_sound_stop(&sfxCorrer); isRunningAudio = false; }
-            // Mantenemos el renderizado del mapa estático al fondo para ver los cambios del menú en tiempo real
+
             const EnvironmentFrame environmentFrame = environmentSystem.BuildFrame(currentFrame);
 
             glClearColor(environmentFrame.clearColor.x, environmentFrame.clearColor.y, environmentFrame.clearColor.z, 1.0f);
@@ -441,18 +524,13 @@ int main() {
             glBindTexture(GL_TEXTURE_2D, shadowTexture);
 
             const Optimization::FrameCulling cityCulling = Optimization::BuildFrameCulling(
-                projection,
-                view,
-                cameraPos,
-                cameraFront,
-                citySceneBounds.radius);
+                projection, view, cameraPos, cameraFront, citySceneBounds.radius);
             Optimization::DrawCityMeshes(physics.visualMeshes, cityMeshBounds, cityCulling, cityRenderSettings);
             vehicle.Draw(cityShader);
             traffic.Draw(cityShader, vehicle, cameraPos);
 
             DrawDynamicSky(skyboxShader, skyboxVAO, environmentFrame, view, projection, cameraPos, currentFrame);
 
-            // --- INTERFAZ DEL MENÚ DE PAUSA ---
             const MainMenuAction pauseAction = mainMenu.DrawPause(environmentSystem);
             if (pauseAction == MainMenuAction::Resume) {
                 vehicle.SetAudioPaused(false);
@@ -517,15 +595,20 @@ int main() {
 }
 
 void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamepadInput& gamepad, bool vehicleDriving) {
-    // --- CONTROL DE PAUSA CON ESCAPE ---
     const bool pausePressed = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS || gamepad.pauseDown;
-    if (pausePressed && !pauseToggleWasPressed && currentState == STATE_RUNNING) {
-        currentState = STATE_PAUSE;
-        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    if (pausePressed && !pauseToggleWasPressed) {
+        if (currentState == STATE_RUNNING) {
+            currentState = STATE_PAUSE;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+        else if (currentState == STATE_PAUSE) {
+            currentState = STATE_RUNNING;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            firstMouse = true;
+        }
     }
     pauseToggleWasPressed = pausePressed;
 
-    // Si el juego está en el Menú Principal o en Pausa, no procesamos el movimiento del jugador
     if (currentState != STATE_RUNNING) return;
     if (vehicleDriving) return;
 
@@ -533,7 +616,6 @@ void processInput(GLFWwindow* window, PhysicsWorld& physics, const GameplayGamep
         return;
     }
 
-    // --- LÓGICA DE MOVIMIENTO (FPS) ---
     float baseSpeed = 6.0f;
     bool isSprinting = false;
 
@@ -607,10 +689,10 @@ bool processFlightInput(GLFWwindow* window) {
     }
 
     glm::vec3 flyDirection(0.0f);
-    if ((glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)) flyDirection += cameraFront;
-    if ((glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)) flyDirection -= cameraFront;
-    if ((glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)) flyDirection -= right;
-    if ((glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)||(glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)) flyDirection += right;
+    if ((glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)) flyDirection += cameraFront;
+    if ((glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)) flyDirection -= cameraFront;
+    if ((glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)) flyDirection -= right;
+    if ((glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) || (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)) flyDirection += right;
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) flyDirection += cameraUp;
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) flyDirection -= cameraUp;
 
@@ -623,20 +705,11 @@ bool processFlightInput(GLFWwindow* window) {
 
 void UpdateWindowTitle(GLFWwindow* window, float currentFrame) {
     static float nextUpdateTime = 0.0f;
-    if (currentFrame < nextUpdateTime) {
-        return;
-    }
+    if (currentFrame < nextUpdateTime) return;
     nextUpdateTime = currentFrame + 0.1f;
 
     char title[160];
-    std::snprintf(
-        title,
-        sizeof(title),
-        "Motor Grafico - ExplorerMaps | X: %.1f  Y: %.1f  Z: %.1f%s",
-        cameraPos.x,
-        cameraPos.y,
-        cameraPos.z,
-        isFlying ? " | VOLANDO" : "");
+    std::snprintf(title, sizeof(title), "Motor Grafico - ExplorerMaps | X: %.1f  Y: %.1f  Z: %.1f%s", cameraPos.x, cameraPos.y, cameraPos.z, isFlying ? " | VOLANDO" : "");
     glfwSetWindowTitle(window, title);
 }
 
@@ -680,6 +753,7 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     shader.setFloat("cloudCoverage", frame.cloudCoverage);
     shader.setFloat("cloudSpeed", frame.cloudSpeed);
     shader.setFloat("cloudDensity", frame.cloudDensity);
+
     const float shadowStrength = Localization::shadowsEnabled
         ? glm::smoothstep(-0.04f, 0.24f, frame.sunHeight) * (1.0f - frame.rainIntensity * 0.48f) * 0.98f
         : 0.0f;
@@ -699,15 +773,7 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
     }
 }
 
-glm::mat4 RenderDirectionalShadow(
-    Shader& shader,
-    unsigned int framebuffer,
-    const EnvironmentFrame& frame,
-    const glm::vec3& cameraPosition,
-    const glm::vec3& cameraForward,
-    const PhysicsWorld& physics,
-    const std::vector<Optimization::MeshBounds>& meshBounds,
-    float sceneRadius) {
+glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius) {
     glm::vec3 shadowCenter = cameraPosition + cameraForward * 48.0f;
     constexpr float shadowHalfWidth = 112.0f;
     constexpr float shadowHalfHeight = 94.0f;
@@ -715,18 +781,11 @@ glm::mat4 RenderDirectionalShadow(
     shadowCenter.x = std::floor(shadowCenter.x / shadowWorldTexel) * shadowWorldTexel;
     shadowCenter.z = std::floor(shadowCenter.z / shadowWorldTexel) * shadowWorldTexel;
     glm::vec3 directionToLight = frame.mainLightPosition - shadowCenter;
-    directionToLight = glm::length(directionToLight) > 0.001f
-        ? glm::normalize(directionToLight)
-        : glm::vec3(0.35f, 0.75f, -0.45f);
+    directionToLight = glm::length(directionToLight) > 0.001f ? glm::normalize(directionToLight) : glm::vec3(0.35f, 0.75f, -0.45f);
 
     const glm::vec3 lightPosition = shadowCenter + directionToLight * 300.0f;
-    const glm::vec3 lightUp = std::abs(glm::dot(directionToLight, cameraUp)) > 0.96f
-        ? glm::vec3(0.0f, 0.0f, 1.0f)
-        : cameraUp;
-    const glm::mat4 lightProjection = glm::ortho(
-        -shadowHalfWidth, shadowHalfWidth,
-        -shadowHalfHeight, shadowHalfHeight,
-        1.0f, 600.0f);
+    const glm::vec3 lightUp = std::abs(glm::dot(directionToLight, cameraUp)) > 0.96f ? glm::vec3(0.0f, 0.0f, 1.0f) : cameraUp;
+    const glm::mat4 lightProjection = glm::ortho(-shadowHalfWidth, shadowHalfWidth, -shadowHalfHeight, shadowHalfHeight, 1.0f, 600.0f);
     const glm::mat4 lightView = glm::lookAt(lightPosition, shadowCenter, lightUp);
     const glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 
@@ -739,12 +798,8 @@ glm::mat4 RenderDirectionalShadow(
     shader.use();
     shader.setMat4("model", glm::mat4(1.0f));
     shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
-    const Optimization::FrameCulling shadowCulling = Optimization::BuildFrameCulling(
-        lightProjection,
-        lightView,
-        lightPosition,
-        glm::normalize(shadowCenter - lightPosition),
-        sceneRadius);
+    const Optimization::FrameCulling shadowCulling = Optimization::BuildFrameCulling(lightProjection, lightView, lightPosition, glm::normalize(shadowCenter - lightPosition), sceneRadius);
+
     Optimization::RenderSettings shadowSettings;
     shadowSettings.maxRenderDistance = 520.0f;
     shadowSettings.lodNearDistanceMultiplier = 0.10f;
@@ -789,4 +844,139 @@ void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFra
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
     glDepthFunc(GL_LESS);
+}
+
+// --- LOGICA DE DETECCION DE ZONAS GEOGRAFICAS ---
+bool IsPlayerInBuildingZone(glm::vec3 playerPos) {
+    bool enAltura = playerPos.y >= 51.0f;
+    if (!enAltura) return false;
+
+    float centroX = 179.65f;
+    float centroZ = 223.75f;
+    float radioCilindro = 32.0f;
+
+    float distanciaX = playerPos.x - centroX;
+    float distanciaZ = playerPos.z - centroZ;
+    float distanciaCuadrada = (distanciaX * distanciaX) + (distanciaZ * distanciaZ);
+
+    return distanciaCuadrada <= (radioCilindro * radioCilindro);
+}
+
+bool IsPlayerInVolcanoZone(glm::vec3 playerPos) {
+    bool enAltura = playerPos.y >= 37.0f;
+    if (!enAltura) return false;
+
+    float minX = -980.0f, maxX = -450.0f;
+    float minZ = -200.0f, maxZ = -125.0f;
+
+    return (playerPos.x >= minX && playerPos.x <= maxX) && (playerPos.z >= minZ && playerPos.z <= maxZ);
+}
+
+// --- RENDERS PROCEDURALES LIMPIOS CON EL ESTILO DEL JUEGO ---
+// --- RENDERS PROCEDURALES LIMPIOS CON EL ESTILO DEL JUEGO ---
+// --- RENDERS PROCEDURALES LIMPIOS CON EL ESTILO DEL JUEGO ---
+void DrawProgrammedMonumentFicha(MonumentType type) {
+    const float panelWidth = 920.0f;
+    float panelHeight = 400.0f; // Alto base aumentado para fuente más grande
+
+    const char* title = "";
+    const char* desc = "";
+    ImVec4 headerColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    if (type == MONUMENT_RELOJ) {
+        title = "RELOJ DE DIRIAMBA";
+        desc = "Construido en 1935, esta torre de 15.5 metros es el segundo monumento mas importante de la ciudad. Su estructura fue declarada Patrimonio Cultural en 2002.";
+        headerColor = ImVec4(0.98f, 0.73f, 0.05f, 1.0f);
+        panelHeight = 380.0f;
+    }
+    else if (type == MONUMENT_VOLCAN) {
+        title = "VOLCAN MASAYA";
+        desc = "Este volcan activo alberga el crater Santiago, uno de los pocos lugares del mundo con un lago de lava persistente. Como dato historico, el fraile espanol Francisco de Bobadilla coloco una gran cruz en su cumbre en 1529 para exorcizar al volcan, al que los conquistadores creian una entrada directa al infierno.";
+        headerColor = ImVec4(1.00f, 0.25f, 0.05f, 1.0f);
+        panelHeight = 560.0f; // Alto expandido para que quepa TODA la info grande y legible
+    }
+
+    // Centrado simétrico en pantalla
+    ImGui::SetNextWindowPos(ImVec2((SCR_WIDTH - panelWidth) * 0.5f, (SCR_HEIGHT - panelHeight) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight));
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
+    // Margen interno entre elementos: ¡Crucial para que no se encime el texto grande!
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 14.0f));
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.02f, 0.04f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(headerColor.x, headerColor.y, headerColor.z, 0.50f));
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+
+    if (ImGui::Begin("FichaInformativaProcedural", nullptr, flags)) {
+        ImDrawList* wndDraw = ImGui::GetWindowDrawList();
+        ImVec2 wndPos = ImGui::GetWindowPos();
+
+        // 1. ENCABEZADO PREMIUM
+        float headerHeight = 90.0f;
+        ImVec2 headerP0 = ImVec2(wndPos.x + 12.0f, wndPos.y + 12.0f);
+        ImVec2 headerP1 = ImVec2(headerP0.x + panelWidth - 24.0f, headerP0.y + headerHeight);
+
+        wndDraw->AddRectFilled(headerP0, headerP1, IM_COL32(15, 18, 26, 255), 12.0f);
+        wndDraw->AddRectFilled(headerP0, ImVec2(headerP1.x, headerP0.y + 6.0f), ImGui::ColorConvertFloat4ToU32(headerColor), 12.0f);
+
+        // 2. TÍTULO GRANDE (USANDO PUSH/POP FONT SI TIENES UNA FUENTE CARGADA)
+        const float titleFontSize = 36.0f;
+        ImVec2 titleSize = ImGui::GetFont()->CalcTextSizeA(titleFontSize, FLT_MAX, 0.0f, title);
+
+        ImVec2 titlePos = ImVec2(
+            headerP0.x + ((panelWidth - 24.0f) - titleSize.x) * 0.5f,
+            headerP0.y + (headerHeight - titleSize.y) * 0.5f + 2.0f
+        );
+
+        wndDraw->AddText(ImGui::GetFont(), titleFontSize, ImVec2(titlePos.x + 2.0f, titlePos.y + 2.0f), IM_COL32(0, 0, 0, 200), title);
+        wndDraw->AddText(ImGui::GetFont(), titleFontSize, titlePos, ImGui::ColorConvertFloat4ToU32(headerColor), title);
+
+        // Espaciado corregido tras el encabezado
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + headerHeight + 10.0f);
+        ImGui::Separator();
+
+        // 3. CUERPO DEL TEXTO (DESCRIPCIÓN GRANDE Y LEGIBLE)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.94f, 0.96f, 1.0f));
+
+        // Ajustamos la fuente interna del cuerpo: ¡AUMENTADA!
+        const float bodyFontSize = 24.0f; // Mucho más grande, legible y premium
+
+        // IMPORTANTE: Asegurar interlineado correcto al cambiar tamaño
+        ImGui::SetCursorPosX(36.0f); // Margen izquierdo
+        ImGui::PushTextWrapPos(panelWidth - 36.0f); // Margen derecho
+
+        // --- LA CORRECCIÓN CLAVE ---
+        // Si no tienes una fuente específica cargada para cuerpo, usa GetFont() 
+        // pero asegúrate de ajustar el interlineado usando CalcTextSize para el salto de línea.
+        // ImGui se encarga del interlineado basado en el tamaño de fuente si usas PushFont.
+        // Si usas AddText manual, debes manejar el salto tú. Aquí usamos TextWrapped de ImGui 
+        // pero ajustando el WindowFontScale **SOLO** si tienes una fuente cargada.
+
+        // Si tienes una fuente específica cargada en io.Fonts para cuerpo, úsala:
+        // ImGui::PushFont(bodyFont);
+
+        // Si estás usando la fuente por defecto escalada (causa problemas si no se maneja bien):
+        // En lugar de escalar la ventana, usamos AddText en el drawlist para el cuerpo 
+        // **RESPECTANDO** el TextWrap, o usamos la fuente grande cargada.
+
+        // Asumiendo que ImGui ya tiene una fuente cargada para el título, úsala aquí:
+        wndDraw->AddText(ImGui::GetFont(), bodyFontSize, ImGui::GetCursorScreenPos(), ImGui::ColorConvertFloat4ToU32(ImVec4(0.92f, 0.94f, 0.96f, 1.0f)), desc, desc + strlen(desc), panelWidth - 72.0f);
+
+        // Empujamos el cursor hacia abajo manualmente para que ImGui sepa dónde terminó el texto AddText
+        ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(bodyFontSize, panelWidth - 72.0f, panelWidth - 72.0f, desc);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + textSize.y);
+
+        // Si usabas PushFont, descomenta esto:
+        // ImGui::PopFont();
+
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3); // PopWindowRounding, PopWindowBorderSize, PopItemSpacing
 }
