@@ -12,6 +12,7 @@ public:
     bool Init(ma_engine* engine);
     void StartAmbient();
     void StopAmbient();
+    void SetCityAmbienceMuted(bool muted);
     void Update(const EnvironmentFrame& frame, EnvironmentSystem& environment);
     void Shutdown();
 
@@ -22,4 +23,5 @@ private:
     ma_sound rain{};
     bool initialized = false;
     bool ambientStarted = false;
+    bool cityAmbienceMuted = false;
 };

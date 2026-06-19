@@ -160,14 +160,17 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Ambiente.h" />
+    <ClInclude Include="CityBackdrop.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_impl_glfw.h" />
     <ClInclude Include="imgui\imgui_impl_opengl3.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="InteractionReticle.h" />
+    <ClInclude Include="Localization.h" />
     <ClInclude Include="MainMenu.h" />
     <ClInclude Include="LoadingScreen.h" />
+    <ClInclude Include="MountainElevator.h" />
     <ClInclude Include="EnvironmentAudio.h" />
     <ClInclude Include="EnvironmentSystem.h" />
     <ClInclude Include="GameplayInput.h" />
@@ -176,10 +179,14 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClInclude Include="PhysicsWorld.h" />
     <ClInclude Include="PlayerMovementAnimation.h" />
     <ClInclude Include="Shader.h" />
+    <ClInclude Include="SkateRampModel.h" />
+    <ClInclude Include="TrafficSystem.h" />
+    <ClInclude Include="VehicleController.h" />
     <ClInclude Include="WeatherOverlay.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="CityBackdrop.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_impl_glfw.cpp" />
     <ClCompile Include="imgui\imgui_impl_opengl3.cpp" />
@@ -187,6 +194,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClCompile Include="InteractionReticle.cpp" />
     <ClCompile Include="MainMenu.cpp" />
     <ClCompile Include="LoadingScreen.cpp" />
+    <ClCompile Include="MountainElevator.cpp" />
     <ClCompile Include="EnvironmentAudio.cpp" />
     <ClCompile Include="EnvironmentSystem.cpp" />
     <ClCompile Include="GameplayInput.cpp" />
@@ -194,6 +202,9 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <ClCompile Include="Optimization.cpp" />
     <ClCompile Include="PhysicsWorld.cpp" />
     <ClCompile Include="PlayerMovementAnimation.cpp" />
+    <ClCompile Include="SkateRampModel.cpp" />
+    <ClCompile Include="TrafficSystem.cpp" />
+    <ClCompile Include="VehicleController.cpp" />
     <ClCompile Include="WeatherOverlay.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -201,6 +212,7 @@ xcopy /Y "$(ProjectDir)..\dependencias\bin\*.dll" "$(OutDir)"</Command>
     <None Include="city.frag" />
     <None Include="city.vert" />
     <None Include="modelos\city.glb" />
+    <None Include="modelos\nissan.glb" />
     <None Include="skybox.frag" />
     <None Include="skybox.vert" />
   </ItemGroup>

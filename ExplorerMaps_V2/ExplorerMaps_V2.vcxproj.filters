@@ -21,10 +21,16 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CityBackdrop.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="PhysicsWorld.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SkateRampModel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="imgui\imconfig.h">
@@ -57,6 +63,9 @@
     <ClInclude Include="InteractionReticle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Localization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MainMenu.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -75,8 +84,20 @@
     <ClInclude Include="WeatherOverlay.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="VehicleController.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TrafficSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MountainElevator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CityBackdrop.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PhysicsWorld.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -104,6 +125,9 @@
     <ClCompile Include="PlayerMovementAnimation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SkateRampModel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="InteractionReticle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -125,9 +149,21 @@
     <ClCompile Include="WeatherOverlay.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="VehicleController.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TrafficSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MountainElevator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="modelos\city.glb">
+      <Filter>modelos</Filter>
+    </None>
+    <None Include="modelos\nissan.glb">
       <Filter>modelos</Filter>
     </None>
     <None Include="city.vert">

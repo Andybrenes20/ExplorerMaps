@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -10,6 +11,7 @@
 #include "imgui/imgui.h"
 #include "stb/stb_image.h"
 #include "EnvironmentSystem.h"
+#include "Localization.h"
 
 namespace {
     constexpr float kSlideSeconds = 6.0f;
@@ -71,6 +73,16 @@ bool MainMenu::Initialize() {
     return !backgrounds.empty();
 }
 
+void MainMenu::SetButtonSoundCallback(std::function<void()> callback) {
+    buttonSoundCallback = std::move(callback);
+}
+
+void MainMenu::PlayButtonSound() {
+    if (buttonSoundCallback) {
+        buttonSoundCallback();
+    }
+}
+
 MainMenuAction MainMenu::Draw(float currentTime) {
     const ImGuiIO& io = ImGui::GetIO();
     const ImVec2 display = io.DisplaySize;
@@ -106,26 +118,40 @@ MainMenuAction MainMenu::Draw(float currentTime) {
     ImGui::PopFont();
 
     MainMenuAction action = MainMenuAction::None;
-    if (!creditsOpen) {
-        UpdateControllerNavigation(3);
+    if (!creditsOpen && !optionsOpen) {
+        UpdateControllerNavigation(4);
         const ImVec2 buttonSize = ScaleToDisplay(340.0f, 66.0f, display);
-        if (DrawAngledButton("start", "INICIAR", ScaleToDisplay(640.0f, 285.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 0) || ActivateSelection(0)) {
+        if (DrawAngledButton("start", Localization::Text("INICIAR", "START"), ScaleToDisplay(640.0f, 255.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 0) || ActivateSelection(0)) {
             action = MainMenuAction::Start;
         }
-        if (DrawAngledButton("credits", "CREDITOS", ScaleToDisplay(640.0f, 395.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 1) || ActivateSelection(1)) {
+        if (DrawAngledButton("credits", Localization::Text("CREDITOS", "CREDITS"), ScaleToDisplay(640.0f, 345.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 1) || ActivateSelection(1)) {
             creditsOpen = true;
             navigationSelection = 0;
         }
-        if (DrawAngledButton("quit", "CERRAR", ScaleToDisplay(640.0f, 505.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2)) {
+        if (DrawAngledButton("options", Localization::Text("OPCIONES", "OPTIONS"), ScaleToDisplay(640.0f, 435.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2)) {
+            optionsOpen = true;
+            optionsPage = OptionsPage::Main;
+            navigationSelection = 0;
+        }
+        if (DrawAngledButton("quit", Localization::Text("CERRAR", "QUIT"), ScaleToDisplay(640.0f, 525.0f, display), buttonSize, controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3)) {
             action = MainMenuAction::Quit;
         }
     }
-    else {
+    else if (creditsOpen) {
         UpdateControllerNavigation(1);
         DrawCredits();
-        if (navAcceptPressed || navBackPressed) {
+        if (navAcceptPressed) {
+            PlayButtonSound();
             creditsOpen = false;
         }
+        else if (navBackPressed) {
+            creditsOpen = false;
+        }
+    }
+    else if (DrawOptions()) {
+        optionsOpen = false;
+        optionsPage = OptionsPage::Main;
+        navigationSelection = 0;
     }
 
     ImGui::End();
@@ -151,33 +177,33 @@ MainMenuAction MainMenu::DrawPause(EnvironmentSystem& environment) {
 
     if (pausePage == PausePage::Atmosphere) {
         UpdateControllerNavigation(4);
-        DrawTechPanel("AMBIENTE", panelMin, panelMax);
+        DrawTechPanel(Localization::Text("AMBIENTE", "ENVIRONMENT"), panelMin, panelMax);
         const float w = panelMax.x - panelMin.x;
         const float h = panelMax.y - panelMin.y;
         const ImVec2 buttonSize(w * 0.62f, h * 0.105f);
-        if (DrawMenuButton("environment_day", "DIA", ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.32f), buttonSize, environment.GetMode() == EnvironmentMode::Day || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
+        if (DrawMenuButton("environment_day", Localization::Text("DIA", "DAY"), ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.32f), buttonSize, environment.GetMode() == EnvironmentMode::Day || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
             environment.SetMode(EnvironmentMode::Day);
         }
-        if (DrawMenuButton("environment_night", "NOCHE", ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.47f), buttonSize, environment.GetMode() == EnvironmentMode::Night || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
+        if (DrawMenuButton("environment_night", Localization::Text("NOCHE", "NIGHT"), ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.47f), buttonSize, environment.GetMode() == EnvironmentMode::Night || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
             environment.SetMode(EnvironmentMode::Night);
         }
-        if (DrawMenuButton("environment_auto", "AUTOMATICO", ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.62f), buttonSize, environment.GetMode() == EnvironmentMode::Auto || (controllerNavigationActive && navigationSelection == 2)) || ActivateSelection(2)) {
+        if (DrawMenuButton("environment_auto", Localization::Text("AUTOMATICO", "AUTOMATIC"), ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.62f), buttonSize, environment.GetMode() == EnvironmentMode::Auto || (controllerNavigationActive && navigationSelection == 2)) || ActivateSelection(2)) {
             environment.SetMode(EnvironmentMode::Auto);
         }
-        if (DrawMenuButton("environment_back", "VOLVER", ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.82f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3) || navBackPressed) {
+        if (DrawMenuButton("environment_back", Localization::Text("VOLVER", "BACK"), ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.82f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3) || navBackPressed) {
             pausePage = PausePage::Main;
             navigationSelection = 0;
         }
     }
     else if (pausePage == PausePage::Controls) {
         UpdateControllerNavigation(3, true);
-        DrawTechPanel("CONTROLES", panelMin, panelMax, controlsPage == ControlsPage::Gamepad ? 0.76f : 0.58f);
+        DrawTechPanel(Localization::Text("CONTROLES", "CONTROLS"), panelMin, panelMax, controlsPage == ControlsPage::Gamepad ? 0.76f : 0.58f);
         const float w = panelMax.x - panelMin.x;
         const float h = panelMax.y - panelMin.y;
-        if (DrawMenuButton("keyboard_tab", "TECLADO", ImVec2(panelMin.x + w * 0.34f, panelMin.y + h * 0.22f), ImVec2(w * 0.28f, h * 0.075f), controlsPage == ControlsPage::Keyboard || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
+        if (DrawMenuButton("keyboard_tab", Localization::Text("TECLADO", "KEYBOARD"), ImVec2(panelMin.x + w * 0.34f, panelMin.y + h * 0.22f), ImVec2(w * 0.28f, h * 0.075f), controlsPage == ControlsPage::Keyboard || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
             controlsPage = ControlsPage::Keyboard;
         }
-        if (DrawMenuButton("gamepad_tab", "MANDO", ImVec2(panelMin.x + w * 0.66f, panelMin.y + h * 0.22f), ImVec2(w * 0.28f, h * 0.075f), controlsPage == ControlsPage::Gamepad || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
+        if (DrawMenuButton("gamepad_tab", Localization::Text("MANDO", "GAMEPAD"), ImVec2(panelMin.x + w * 0.66f, panelMin.y + h * 0.22f), ImVec2(w * 0.28f, h * 0.075f), controlsPage == ControlsPage::Gamepad || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
             controlsPage = ControlsPage::Gamepad;
         }
         if (controlsPage == ControlsPage::Keyboard) {
@@ -186,31 +212,43 @@ MainMenuAction MainMenu::DrawPause(EnvironmentSystem& environment) {
         else {
             DrawGamepadControls(panelMin, panelMax);
         }
-        if (DrawMenuButton("controls_back", "VOLVER", ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.88f), ImVec2(w * 0.42f, h * 0.075f), controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2) || navBackPressed) {
+        if (DrawMenuButton("controls_back", Localization::Text("VOLVER", "BACK"), ImVec2((panelMin.x + panelMax.x) * 0.5f, panelMin.y + h * 0.88f), ImVec2(w * 0.42f, h * 0.075f), controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2) || navBackPressed) {
             pausePage = PausePage::Main;
             navigationSelection = 0;
         }
     }
+    else if (pausePage == PausePage::Options) {
+        if (DrawOptions()) {
+            pausePage = PausePage::Main;
+            optionsPage = OptionsPage::Main;
+            navigationSelection = 0;
+        }
+    }
     else {
-        UpdateControllerNavigation(4);
-        DrawTechPanel("PAUSA", panelMin, panelMax);
+        UpdateControllerNavigation(5);
+        DrawTechPanel(Localization::Text("PAUSA", "PAUSE"), panelMin, panelMax);
         const float w = panelMax.x - panelMin.x;
         const float h = panelMax.y - panelMin.y;
         const ImVec2 buttonSize(w * 0.66f, h * 0.10f);
         const float centerX = (panelMin.x + panelMax.x) * 0.5f;
-        if (DrawMenuButton("pause_resume", "REANUDAR", ImVec2(centerX, panelMin.y + h * 0.31f), buttonSize, controllerNavigationActive && navigationSelection == 0) || ActivateSelection(0) || navBackPressed) {
+        if (DrawMenuButton("pause_resume", Localization::Text("REANUDAR", "RESUME"), ImVec2(centerX, panelMin.y + h * 0.27f), buttonSize, controllerNavigationActive && navigationSelection == 0) || ActivateSelection(0) || navBackPressed) {
             pausePage = PausePage::Main;
             action = MainMenuAction::Resume;
         }
-        if (DrawMenuButton("pause_atmosphere", "AMBIENTE", ImVec2(centerX, panelMin.y + h * 0.45f), buttonSize, controllerNavigationActive && navigationSelection == 1) || ActivateSelection(1)) {
+        if (DrawMenuButton("pause_atmosphere", Localization::Text("AMBIENTE", "ENVIRONMENT"), ImVec2(centerX, panelMin.y + h * 0.39f), buttonSize, controllerNavigationActive && navigationSelection == 1) || ActivateSelection(1)) {
             pausePage = PausePage::Atmosphere;
             navigationSelection = 0;
         }
-        if (DrawMenuButton("pause_controls", "CONTROLES", ImVec2(centerX, panelMin.y + h * 0.59f), buttonSize, controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2)) {
+        if (DrawMenuButton("pause_controls", Localization::Text("CONTROLES", "CONTROLS"), ImVec2(centerX, panelMin.y + h * 0.51f), buttonSize, controllerNavigationActive && navigationSelection == 2) || ActivateSelection(2)) {
             pausePage = PausePage::Controls;
             navigationSelection = 0;
         }
-        if (DrawMenuButton("pause_main_menu", "VOLVER AL MENU", ImVec2(centerX, panelMin.y + h * 0.76f), ImVec2(w * 0.72f, h * 0.10f), controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3)) {
+        if (DrawMenuButton("pause_options", Localization::Text("OPCIONES", "OPTIONS"), ImVec2(centerX, panelMin.y + h * 0.63f), buttonSize, controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3)) {
+            pausePage = PausePage::Options;
+            optionsPage = OptionsPage::Main;
+            navigationSelection = 0;
+        }
+        if (DrawMenuButton("pause_main_menu", Localization::Text("VOLVER AL MENU", "RETURN TO MAIN MENU"), ImVec2(centerX, panelMin.y + h * 0.78f), ImVec2(w * 0.78f, h * 0.10f), controllerNavigationActive && navigationSelection == 4) || ActivateSelection(4)) {
             pausePage = PausePage::Main;
             action = MainMenuAction::ReturnToMainMenu;
         }
@@ -240,24 +278,24 @@ void MainMenu::DrawEnvironmentMenu(EnvironmentSystem& environment) {
     drawList->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(0, 0, 0, 135));
     ImVec2 panelMin;
     ImVec2 panelMax;
-    DrawTechPanel("AMBIENTE", panelMin, panelMax);
+    DrawTechPanel(Localization::Text("AMBIENTE", "ENVIRONMENT"), panelMin, panelMax);
     const float w = panelMax.x - panelMin.x;
     const float h = panelMax.y - panelMin.y;
     const ImVec2 buttonSize(w * 0.62f, h * 0.105f);
     const float centerX = (panelMin.x + panelMax.x) * 0.5f;
-    if (DrawMenuButton("game_environment_day", "DIA", ImVec2(centerX, panelMin.y + h * 0.32f), buttonSize, environment.GetMode() == EnvironmentMode::Day || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
+    if (DrawMenuButton("game_environment_day", Localization::Text("DIA", "DAY"), ImVec2(centerX, panelMin.y + h * 0.32f), buttonSize, environment.GetMode() == EnvironmentMode::Day || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
         environment.SetMode(EnvironmentMode::Day);
         environment.CloseMenu();
     }
-    if (DrawMenuButton("game_environment_night", "NOCHE", ImVec2(centerX, panelMin.y + h * 0.47f), buttonSize, environment.GetMode() == EnvironmentMode::Night || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
+    if (DrawMenuButton("game_environment_night", Localization::Text("NOCHE", "NIGHT"), ImVec2(centerX, panelMin.y + h * 0.47f), buttonSize, environment.GetMode() == EnvironmentMode::Night || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
         environment.SetMode(EnvironmentMode::Night);
         environment.CloseMenu();
     }
-    if (DrawMenuButton("game_environment_auto", "AUTOMATICO", ImVec2(centerX, panelMin.y + h * 0.62f), buttonSize, environment.GetMode() == EnvironmentMode::Auto || (controllerNavigationActive && navigationSelection == 2)) || ActivateSelection(2)) {
+    if (DrawMenuButton("game_environment_auto", Localization::Text("AUTOMATICO", "AUTOMATIC"), ImVec2(centerX, panelMin.y + h * 0.62f), buttonSize, environment.GetMode() == EnvironmentMode::Auto || (controllerNavigationActive && navigationSelection == 2)) || ActivateSelection(2)) {
         environment.SetMode(EnvironmentMode::Auto);
         environment.CloseMenu();
     }
-    if (DrawMenuButton("game_environment_back", "VOLVER", ImVec2(centerX, panelMin.y + h * 0.82f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3) || navBackPressed) {
+    if (DrawMenuButton("game_environment_back", Localization::Text("VOLVER", "BACK"), ImVec2(centerX, panelMin.y + h * 0.82f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 3) || ActivateSelection(3) || navBackPressed) {
         environment.CloseMenu();
     }
     ImGui::End();
@@ -326,6 +364,9 @@ bool MainMenu::DrawAngledButton(const char* id, const char* label, const ImVec2&
     const ImVec2 min(center.x - size.x * 0.5f, center.y - size.y * 0.5f);
     ImGui::SetCursorScreenPos(min);
     const bool pressed = ImGui::InvisibleButton(id, size);
+    if (pressed) {
+        PlayButtonSound();
+    }
     const bool hovered = ImGui::IsItemHovered();
     const bool held = ImGui::IsItemActive();
 
@@ -390,7 +431,7 @@ void MainMenu::DrawCredits() {
     drawList->AddRect(panelMin, panelMax, IM_COL32(242, 185, 0, 255), 6.0f, 15, 3.0f);
 
     ImGui::PushFont(buttonFont);
-    const char* heading = "CREDITOS";
+    const char* heading = Localization::Text("CREDITOS", "CREDITS");
     const ImVec2 headingSize = ImGui::CalcTextSize(heading);
     drawList->AddText(
         ImVec2((display.x - headingSize.x) * 0.5f, panelMin.y + 28.0f),
@@ -399,7 +440,9 @@ void MainMenu::DrawCredits() {
     ImGui::PopFont();
 
     ImGui::PushFont(bodyFont);
-    const char* text = "EXPLORER MAPS\n\nDesarrollo y diseno del proyecto\nEquipo ExplorerMaps";
+    const char* text = Localization::Text(
+        "EXPLORER MAPS\nEquipo ExplorerMaps\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener",
+        "EXPLORER MAPS\nExplorerMaps Team\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener");
     const ImVec2 textSize = ImGui::CalcTextSize(text);
     drawList->AddText(
         ImVec2((display.x - textSize.x) * 0.5f, panelMin.y + 98.0f),
@@ -407,14 +450,69 @@ void MainMenu::DrawCredits() {
         text);
     ImGui::PopFont();
 
-    if (DrawAngledButton("back", "VOLVER", ScaleToDisplay(640.0f, 505.0f, display), ScaleToDisplay(260.0f, 58.0f, display))) {
+    if (DrawAngledButton("back", Localization::Text("VOLVER", "BACK"), ScaleToDisplay(640.0f, 505.0f, display), ScaleToDisplay(260.0f, 58.0f, display))) {
         creditsOpen = false;
     }
+}
+
+bool MainMenu::DrawOptions() {
+    if (optionsPage == OptionsPage::Language) {
+        if (DrawLanguageSelector()) {
+            optionsPage = OptionsPage::Main;
+            navigationSelection = 0;
+        }
+        return false;
+    }
+
+    UpdateControllerNavigation(3);
+    ImVec2 panelMin;
+    ImVec2 panelMax;
+    DrawTechPanel(Localization::Text("OPCIONES", "OPTIONS"), panelMin, panelMax);
+    const float w = panelMax.x - panelMin.x;
+    const float h = panelMax.y - panelMin.y;
+    const float centerX = (panelMin.x + panelMax.x) * 0.5f;
+    const ImVec2 buttonSize(w * 0.72f, h * 0.105f);
+    const char* shadowsLabel = Localization::shadowsEnabled
+        ? Localization::Text("SOMBRAS: ACTIVADAS", "SHADOWS: ON")
+        : Localization::Text("SOMBRAS: DESACTIVADAS", "SHADOWS: OFF");
+
+    if (DrawMenuButton("options_shadows", shadowsLabel, ImVec2(centerX, panelMin.y + h * 0.34f), buttonSize, controllerNavigationActive && navigationSelection == 0) || ActivateSelection(0)) {
+        Localization::shadowsEnabled = !Localization::shadowsEnabled;
+    }
+    if (DrawMenuButton("options_language", Localization::Text("IDIOMA", "LANGUAGE"), ImVec2(centerX, panelMin.y + h * 0.52f), buttonSize, controllerNavigationActive && navigationSelection == 1) || ActivateSelection(1)) {
+        optionsPage = OptionsPage::Language;
+        navigationSelection = 0;
+    }
+    return DrawMenuButton("options_back", Localization::Text("VOLVER", "BACK"), ImVec2(centerX, panelMin.y + h * 0.78f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 2)
+        || ActivateSelection(2) || navBackPressed;
+}
+
+bool MainMenu::DrawLanguageSelector() {
+    UpdateControllerNavigation(3);
+    ImVec2 panelMin;
+    ImVec2 panelMax;
+    DrawTechPanel(Localization::Text("IDIOMA", "LANGUAGE"), panelMin, panelMax);
+    const float w = panelMax.x - panelMin.x;
+    const float h = panelMax.y - panelMin.y;
+    const float centerX = (panelMin.x + panelMax.x) * 0.5f;
+    const ImVec2 buttonSize(w * 0.62f, h * 0.105f);
+
+    if (DrawMenuButton("language_spanish", "ESPAÑOL", ImVec2(centerX, panelMin.y + h * 0.34f), buttonSize, Localization::language == InterfaceLanguage::Spanish || (controllerNavigationActive && navigationSelection == 0)) || ActivateSelection(0)) {
+        Localization::language = InterfaceLanguage::Spanish;
+    }
+    if (DrawMenuButton("language_english", "ENGLISH", ImVec2(centerX, panelMin.y + h * 0.52f), buttonSize, Localization::language == InterfaceLanguage::English || (controllerNavigationActive && navigationSelection == 1)) || ActivateSelection(1)) {
+        Localization::language = InterfaceLanguage::English;
+    }
+    return DrawMenuButton("language_back", Localization::Text("VOLVER", "BACK"), ImVec2(centerX, panelMin.y + h * 0.78f), ImVec2(w * 0.42f, h * 0.09f), controllerNavigationActive && navigationSelection == 2)
+        || ActivateSelection(2) || navBackPressed;
 }
 
 bool MainMenu::DrawImageHotspot(const char* id, const ImVec2& min, const ImVec2& max) {
     ImGui::SetCursorScreenPos(min);
     const bool pressed = ImGui::InvisibleButton(id, ImVec2(max.x - min.x, max.y - min.y));
+    if (pressed) {
+        PlayButtonSound();
+    }
     if (ImGui::IsItemHovered()) {
         ImGui::GetWindowDrawList()->AddRect(min, max, IM_COL32(255, 215, 45, 180), 8.0f, 15, 2.0f);
     }
@@ -453,6 +551,9 @@ bool MainMenu::DrawMenuButton(const char* id, const char* label, const ImVec2& c
     const ImVec2 max(center.x + size.x * 0.5f, center.y + size.y * 0.5f);
     ImGui::SetCursorScreenPos(min);
     const bool pressed = ImGui::InvisibleButton(id, size);
+    if (pressed) {
+        PlayButtonSound();
+    }
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -564,8 +665,12 @@ void MainMenu::UpdateControllerNavigation(int itemCount, bool horizontal) {
     navBackWasDown = backDown;
 }
 
-bool MainMenu::ActivateSelection(int index) const {
-    return controllerNavigationActive && navAcceptPressed && navigationSelection == index;
+bool MainMenu::ActivateSelection(int index) {
+    const bool selected = controllerNavigationActive && navAcceptPressed && navigationSelection == index;
+    if (selected) {
+        PlayButtonSound();
+    }
+    return selected;
 }
 
 void MainMenu::DrawKeyboardControls(const ImVec2& panelMin, const ImVec2& panelMax) {
@@ -590,12 +695,12 @@ void MainMenu::DrawKeyboardControls(const ImVec2& panelMin, const ImVec2& panelM
         ImGui::PopFont();
     };
 
-    drawKey("W A S D", "MOVERSE", areaMin.y + h * 0.035f);
-    drawKey("MOUSE", "MOVER CAMARA", areaMin.y + h * 0.105f);
-    drawKey("SHIFT", "CORRER", areaMin.y + h * 0.175f);
-    drawKey("F3", "MENU DE AMBIENTE", areaMin.y + h * 0.245f);
-    drawKey("R", "ACTIVAR LLUVIA", areaMin.y + h * 0.315f);
-    drawKey("ESC", "MENU DE PAUSA", areaMin.y + h * 0.385f);
+    drawKey("W A S D", Localization::Text("MOVERSE", "MOVE"), areaMin.y + h * 0.035f);
+    drawKey("MOUSE", Localization::Text("MOVER CAMARA", "MOVE CAMERA"), areaMin.y + h * 0.105f);
+    drawKey("SHIFT", Localization::Text("CORRER", "RUN"), areaMin.y + h * 0.175f);
+    drawKey("F3", Localization::Text("MENU DE AMBIENTE", "ENVIRONMENT MENU"), areaMin.y + h * 0.245f);
+    drawKey("R", Localization::Text("ACTIVAR LLUVIA", "TOGGLE RAIN"), areaMin.y + h * 0.315f);
+    drawKey("ESC", Localization::Text("MENU DE PAUSA", "PAUSE MENU"), areaMin.y + h * 0.385f);
 }
 
 void MainMenu::DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMax) {
@@ -642,15 +747,15 @@ void MainMenu::DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMa
     };
 
     const ImVec2 imageCenter(imageMin.x + imageWidth * 0.5f, imageMin.y + imageHeight * 0.5f);
-    drawCallout("STICK IZQ.", "MOVERSE", ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.30f, imageMin.y + imageHeight * 0.66f), true);
-    drawCallout("L2", "CORRER", ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.16f, imageMin.y + imageHeight * 0.18f), true);
-    drawCallout("CRUCETA", "NAVEGAR MENU", ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.27f, imageMin.y + imageHeight * 0.42f), true);
-    drawCallout("STICK DER.", "MOVER CAMARA", ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.68f, imageMin.y + imageHeight * 0.66f), false);
-    drawCallout("R2", "AVANZAR", ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.84f, imageMin.y + imageHeight * 0.18f), false);
-    drawCallout("X / CIRCULO", "ACEPTAR / VOLVER", ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.79f, imageMin.y + imageHeight * 0.42f), false);
+    drawCallout(Localization::Text("STICK IZQ.", "LEFT STICK"), Localization::Text("MOVERSE", "MOVE"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.30f, imageMin.y + imageHeight * 0.66f), true);
+    drawCallout("L2", Localization::Text("CORRER", "RUN"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.16f, imageMin.y + imageHeight * 0.18f), true);
+    drawCallout(Localization::Text("CRUCETA", "D-PAD"), Localization::Text("NAVEGAR MENU", "NAVIGATE MENU"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.27f, imageMin.y + imageHeight * 0.42f), true);
+    drawCallout(Localization::Text("STICK DER.", "RIGHT STICK"), Localization::Text("MOVER CAMARA", "MOVE CAMERA"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.68f, imageMin.y + imageHeight * 0.66f), false);
+    drawCallout("R2", Localization::Text("AVANZAR", "DRIVE"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.84f, imageMin.y + imageHeight * 0.18f), false);
+    drawCallout(Localization::Text("X / CIRCULO", "X / CIRCLE"), Localization::Text("ACEPTAR / VOLVER", "ACCEPT / BACK"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.79f, imageMin.y + imageHeight * 0.42f), false);
 
     ImGui::PushFont(bodyFont);
-    const char* footer = "CUADRADO: INTERACTUAR     OPTIONS: PAUSA";
+    const char* footer = Localization::Text("CUADRADO: INTERACTUAR     OPTIONS: PAUSA", "SQUARE: INTERACT     OPTIONS: PAUSE");
     const ImVec2 footerSize = ImGui::CalcTextSize(footer);
     drawList->AddText(ImVec2(imageCenter.x - footerSize.x * 0.5f, areaMax.y - h * 0.075f), IM_COL32(225, 233, 242, 255), footer);
     ImGui::PopFont();

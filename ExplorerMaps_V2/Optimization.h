@@ -34,6 +34,17 @@ namespace Optimization {
         float viewportCullPadding = 0.035f;
         float peripheralLodStart = 0.54f;
         float peripheralLodEnd = 1.0f;
+        bool hideCristoArea = false;
+        bool hideCristoCutoffArea = false;
+        bool hideVolcanoArea = false;
+        glm::vec3 cristoAreaMin = glm::vec3(-1500.0f, -80.0f, 180.0f);
+        glm::vec3 cristoAreaMax = glm::vec3(140.0f, 900.0f, 1700.0f);
+        glm::vec3 cristoForestAreaMin = glm::vec3(-1600.0f, -80.0f, 160.0f);
+        glm::vec3 cristoForestAreaMax = glm::vec3(180.0f, 380.0f, 1740.0f);
+        glm::vec3 cristoCutoffAreaMin = glm::vec3(-1600.0f, -80.0f, -160.0f);
+        glm::vec3 cristoCutoffAreaMax = glm::vec3(180.0f, 900.0f, 1740.0f);
+        glm::vec3 volcanoAreaMin = glm::vec3(-2450.0f, 80.0f, -1100.0f);
+        glm::vec3 volcanoAreaMax = glm::vec3(-830.0f, 720.0f, 700.0f);
     };
 
     struct FrameCulling {

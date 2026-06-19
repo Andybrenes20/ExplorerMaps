@@ -21,6 +21,8 @@ uniform float cloudSpeed;
 uniform float cloudDensity;
 uniform vec3 celestialLightPosition;
 uniform float shadowStrength;
+uniform vec3 objectTint;
+uniform float objectAlpha;
 
 struct DirLight {
     vec3 direction;
@@ -43,6 +45,15 @@ struct PointLight {
 #define NR_POINT_LIGHTS 4
 uniform PointLight pointLights[NR_POINT_LIGHTS];
 uniform float pointLightIntensity;
+
+struct Headlight {
+    vec3 position;
+    vec3 direction;
+};
+
+#define NR_HEADLIGHTS 2
+uniform Headlight headlights[NR_HEADLIGHTS];
+uniform float headlightIntensity;
 
 float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -78,16 +89,17 @@ float sampleDirectionalShadow(vec3 normal, vec3 lightDir) {
     float bias = mix(0.00105, 0.00018, normalLight);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float closestDepth = texture(shadowMap, projected.xy + vec2(x, y) * texel).r;
-            shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
-        }
+    const vec2 offsets[4] = vec2[](
+        vec2(-0.75, -0.75), vec2(0.75, -0.75),
+        vec2(-0.75, 0.75), vec2(0.75, 0.75));
+    for (int i = 0; i < 4; ++i) {
+        float closestDepth = texture(shadowMap, projected.xy + offsets[i] * texel).r;
+        shadow += projected.z - bias > closestDepth ? 1.0 : 0.0;
     }
 
     float edgeDistance = min(min(projected.x, projected.y), min(1.0 - projected.x, 1.0 - projected.y));
     float edgeFade = smoothstep(0.0, 0.035, edgeDistance);
-    return clamp((shadow / 9.0) * shadowStrength * edgeFade, 0.0, 0.97);
+    return clamp((shadow / 4.0) * shadowStrength * edgeFade, 0.0, 0.97);
 }
 
 vec3 tonemap(vec3 color) {
@@ -124,13 +136,28 @@ vec3 pointLight(PointLight lamp, vec3 normal, vec3 albedo, float horizontalSurfa
     return color * pointLightIntensity;
 }
 
+vec3 vehicleHeadlight(Headlight lamp, vec3 normal, vec3 albedo) {
+    vec3 toFragment = FragPos - lamp.position;
+    float distanceToLight = length(toFragment);
+    vec3 beamDirection = normalize(toFragment);
+    float coneAngle = dot(beamDirection, normalize(lamp.direction));
+    float cone = smoothstep(0.905, 0.978, coneAngle);
+    float distanceFade = 1.0 - smoothstep(18.0, 52.0, distanceToLight);
+    float attenuation = 1.0 / (1.0 + distanceToLight * 0.035 + distanceToLight * distanceToLight * 0.010);
+    vec3 towardLight = normalize(lamp.position - FragPos);
+    float diffuse = max(dot(normal, towardLight), 0.0);
+    float forwardFloorFill = smoothstep(0.18, 0.92, normal.y) * cone * 0.16;
+    vec3 warmWhite = mix(vec3(1.0, 0.78, 0.48), vec3(1.0, 0.94, 0.76), rainIntensity);
+    return albedo * warmWhite * (diffuse + forwardFloorFill) * cone * distanceFade * attenuation * 3.8 * headlightIntensity;
+}
+
 void main() {
     vec4 texel = texture(texture_diffuse1, TexCoord);
     if (texel.a < 0.1) {
         discard;
     }
 
-    vec3 base = texel.rgb;
+    vec3 base = texel.rgb * mix(vec3(1.0), objectTint, 0.72);
     vec3 smoothNormal = normalize(gl_FrontFacing ? Normal : -Normal);
     vec3 geometricNormal = normalize(cross(dFdx(FragPos), dFdy(FragPos)));
     if (dot(geometricNormal, smoothNormal) < 0.0) {
@@ -149,6 +176,7 @@ void main() {
     float fogAmount = clamp(fogIntensity, 0.0, 1.0);
     float night = clamp(nightFactor, 0.0, 1.0);
     float day = clamp(dayFactor, 0.0, 1.0);
+    bool proceduralCityLights = objectAlpha > 0.98;
 
     float horizontalSurface = smoothstep(0.62, 0.92, normal.y);
     float verticalSurface = 1.0 - horizontalSurface;
@@ -244,7 +272,7 @@ void main() {
     }
 
     float cleanRoad = roadMask * (1.0 - roadPaintMask);
-    if (night > 0.02) {
+    if (proceduralCityLights && night > 0.02) {
         // Cheap city-wide lighting: warm pools on streets and soft bounce on nearby facades.
         const float urbanGridSize = 24.0;
         vec2 urbanCell = floor(FragPos.xz / urbanGridSize);
@@ -264,7 +292,7 @@ void main() {
         lit += urbanWarm * albedo * facadeBounce * 0.24;
     }
 
-    if (windowLightIntensity > 0.01 || night > 0.02) {
+    if (proceduralCityLights && (windowLightIntensity > 0.01 || night > 0.02)) {
         vec3 cell = floor(FragPos * vec3(0.055, 0.16, 0.055));
         vec3 local = fract(FragPos * vec3(0.055, 0.16, 0.055)) - 0.5;
         float seed = hash31(cell);
@@ -295,27 +323,35 @@ void main() {
     mattePaint = min(mattePaint, base * mix(0.86, 0.62, night));
     lit = mix(lit, mattePaint, roadPaintMask * mix(0.72, 0.92, night) * (1.0 - rain * 0.28));
 
+    if (headlightIntensity > 0.01) {
+        for (int i = 0; i < NR_HEADLIGHTS; ++i) {
+            lit += vehicleHeadlight(headlights[i], normal, base);
+        }
+    }
+
     vec3 viewDelta = viewPos - FragPos;
     float viewDistance = length(viewDelta);
     float flatDistance = length(viewDelta.xz);
-    float fogDensity = mix(0.00028, 0.00052, night) + rain * 0.00072 + fogAmount * 0.00135;
+    float cutoffFog = smoothstep(0.62, 0.82, fogAmount);
+    float fogDensity = mix(0.00022, 0.00042, night) + rain * 0.00050 + fogAmount * 0.00165 + cutoffFog * 0.00220;
     float distanceFog = 1.0 - exp(-viewDistance * fogDensity);
-    distanceFog = clamp(distanceFog * distanceFog * mix(0.82, 1.28, night + rain * 0.35), 0.0, mix(0.38, 0.62, night) + rain * 0.14 + fogAmount * 0.16);
+    distanceFog = clamp(distanceFog * distanceFog * mix(0.72, 1.05, night + rain * 0.35), 0.0, mix(0.30, 0.48, night) + rain * 0.10 + fogAmount * 0.22 + cutoffFog * 0.26);
+    distanceFog = clamp(distanceFog + smoothstep(80.0, 520.0, flatDistance) * fogAmount * 0.30 + smoothstep(8.0, 120.0, flatDistance) * cutoffFog * 0.34, 0.0, 0.92);
 
     float lowAltitude = exp(-max(FragPos.y - 12.0, 0.0) * 0.030);
     float fogBank = fogAmount > 0.01
         ? smoothNoise2D(FragPos.xz * 0.006 + vec2(time * 0.018, time * 0.006))
         : 0.0;
     fogBank = smoothstep(0.24, 0.78, fogBank) * fogAmount;
-    float streetHaze = smoothstep(28.0, 240.0, flatDistance) * lowAltitude * (0.025 + night * 0.035 + rain * 0.22 + fogBank * 0.30);
+    float streetHaze = smoothstep(18.0, 190.0, flatDistance) * lowAltitude * (0.025 + night * 0.035 + rain * 0.22 + fogBank * 0.58 + fogAmount * 0.24 + cutoffFog * 0.34);
     float hazeVariation = 0.84 + 0.16 * sin(FragPos.x * 0.018 + FragPos.z * 0.013 + time * 0.08);
-    distanceFog = clamp(distanceFog + streetHaze * hazeVariation, 0.0, 0.76);
+    distanceFog = clamp(distanceFog + streetHaze * hazeVariation, 0.0, 0.94);
     vec3 fogDay = mix(vec3(0.76, 0.84, 0.93), vec3(0.96, 0.70, 0.45), golden * 0.55);
     vec3 fogNight = mix(vec3(0.045, 0.052, 0.072), vec3(0.025, 0.075, 0.18), rain);
     vec3 fogRain = vec3(0.29, 0.34, 0.40);
     vec3 generatedFog = mix(vec3(0.64, 0.70, 0.76), vec3(0.095, 0.115, 0.15), night);
     vec3 fog = mix(mix(fogDay, fogNight, night), fogRain, rain * 0.62);
-    fog = mix(fog, generatedFog, fogAmount * 0.62);
+    fog = mix(fog, generatedFog, fogAmount * 0.90);
     fog += mix(vec3(0.006, 0.008, 0.014), vec3(0.018, 0.055, 0.13), rain) * night;
     lit = mix(lit, fog, distanceFog);
 
@@ -324,5 +360,5 @@ void main() {
     lit = mix(vec3(gradedLuma), lit, mix(1.05, mix(1.12, 1.28, rain), night));
     lit = clamp((lit - 0.5) * 1.04 + 0.5, 0.0, 1.0);
     lit = pow(max(lit, vec3(0.0)), vec3(1.0 / 1.08));
-    FragColor = vec4(clamp(lit, 0.0, 1.0), texel.a);
+    FragColor = vec4(clamp(lit, 0.0, 1.0), texel.a * clamp(objectAlpha, 0.0, 1.0));
 }

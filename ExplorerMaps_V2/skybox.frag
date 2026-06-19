@@ -173,10 +173,12 @@ void main() {
     vec3 dayHaze = mix(vec3(0.62, 0.76, 0.92), vec3(1.0, 0.42, 0.18), sunset * (0.44 + smoothstep(-0.10, 0.90, sunSide) * 0.48));
     vec3 nightHaze = mix(vec3(0.035, 0.045, 0.075), vec3(0.025, 0.12, 0.32), rain);
     vec3 atmosphericHaze = mix(dayHaze, nightHaze, night);
-    float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34 + fog * 0.34) * (0.82 + hazeNoise * 0.18);
+    float hazeAmount = horizonHaze * (0.08 + night * 0.07 + rain * 0.34 + fog * 0.68) * (0.82 + hazeNoise * 0.18);
     vec3 generatedFog = mix(vec3(0.64, 0.71, 0.79), vec3(0.07, 0.09, 0.13), night);
-    atmosphericHaze = mix(atmosphericHaze, generatedFog, fog * 0.64);
-    sky = mix(sky, atmosphericHaze, clamp(hazeAmount, 0.0, 0.54));
+    atmosphericHaze = mix(atmosphericHaze, generatedFog, fog * 0.82);
+    sky = mix(sky, atmosphericHaze, clamp(hazeAmount, 0.0, 0.76));
+    float cutoffFog = smoothstep(0.62, 0.82, fog);
+    sky = mix(sky, generatedFog, cutoffFog * (0.18 + horizonHaze * 0.24));
 
     // Keep the celestial bodies readable through the procedural cloud layer.
     float highSun = remap(sunHeight, 0.18, 0.82);

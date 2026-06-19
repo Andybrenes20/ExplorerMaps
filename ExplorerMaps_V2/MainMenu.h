@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <vector>
 
 struct ImFont;
@@ -23,6 +24,7 @@ public:
     };
 
     bool Initialize();
+    void SetButtonSoundCallback(std::function<void()> callback);
     MainMenuAction Draw(float currentTime);
     MainMenuAction DrawPause(EnvironmentSystem& environment);
     void DrawEnvironmentMenu(EnvironmentSystem& environment);
@@ -54,7 +56,9 @@ private:
     bool controllerNavigationActive = false;
     float lastMouseX = 0.0f;
     float lastMouseY = 0.0f;
+    std::function<void()> buttonSoundCallback;
 
+    void PlayButtonSound();
     bool LoadBackground(const char* path);
     bool LoadTexture(const char* path, Background& texture);
     bool DrawAngledButton(const char* id, const char* label, const ImVec2& center, const ImVec2& size, bool selected = false);
@@ -65,7 +69,7 @@ private:
     bool DrawMenuButton(const char* id, const char* label, const ImVec2& center, const ImVec2& size, bool selected = false);
     void DrawTechPanel(const char* title, ImVec2& panelMin, ImVec2& panelMax, float widthScale = 0.50f);
     void UpdateControllerNavigation(int itemCount, bool horizontal = false);
-    bool ActivateSelection(int index) const;
+    bool ActivateSelection(int index);
     void DrawKeyboardControls(const ImVec2& panelMin, const ImVec2& panelMax);
     void DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMax);
 };

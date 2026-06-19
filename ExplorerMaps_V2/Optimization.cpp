@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cctype>
 #include <limits>
 
 #include <GL/glew.h>
@@ -33,6 +34,72 @@ namespace {
             }
         }
         return true;
+    }
+
+    bool IntersectsAabb(
+        const glm::vec3& minA,
+        const glm::vec3& maxA,
+        const glm::vec3& minB,
+        const glm::vec3& maxB) {
+        return minA.x <= maxB.x && maxA.x >= minB.x &&
+            minA.y <= maxB.y && maxA.y >= minB.y &&
+            minA.z <= maxB.z && maxA.z >= minB.z;
+    }
+
+    bool ContainsCaseInsensitive(const std::string& value, const char* pattern) {
+        const std::string needle(pattern);
+        if (needle.empty() || value.size() < needle.size()) {
+            return false;
+        }
+
+        return std::search(
+            value.begin(),
+            value.end(),
+            needle.begin(),
+            needle.end(),
+            [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) ==
+                    std::tolower(static_cast<unsigned char>(b));
+            }) != value.end();
+    }
+
+    bool IsCristoNatureMesh(const RenderMesh& mesh) {
+        const char* keywords[] = {
+            "crist",
+            "arbre",
+            "feuille",
+            "bois",
+            "herbes",
+            "pierre",
+            "pieree",
+            "tree",
+            "leaf",
+            "wood",
+            "grass",
+            "rock"
+        };
+
+        for (const char* keyword : keywords) {
+            if (ContainsCaseInsensitive(mesh.nodeName, keyword) ||
+                ContainsCaseInsensitive(mesh.materialName, keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool IsCristoCutoffMesh(
+        const RenderMesh& mesh,
+        const Optimization::MeshBounds& bounds,
+        const Optimization::RenderSettings& settings) {
+        if (!mesh.addedContent ||
+            !IntersectsAabb(bounds.min, bounds.max, settings.cristoCutoffAreaMin, settings.cristoCutoffAreaMax)) {
+            return false;
+        }
+
+        const glm::vec3 highCristoMin(settings.cristoCutoffAreaMin.x, settings.cristoCutoffAreaMin.y, 650.0f);
+        const bool highCristoObject = IntersectsAabb(bounds.min, bounds.max, highCristoMin, settings.cristoCutoffAreaMax);
+        return highCristoObject || IsCristoNatureMesh(mesh);
     }
 
     bool ProjectSphereToViewport(
@@ -391,8 +458,38 @@ namespace Optimization {
         const FrameCulling& frame,
         const RenderSettings& settings) {
         RenderStats stats;
+        RenderSettings cristoPreserveSettings = settings;
+        cristoPreserveSettings.lodNearDistanceMultiplier = 100000.0f;
+        cristoPreserveSettings.lodMidDistanceMultiplier = 100000.0f;
+        cristoPreserveSettings.lodTinyMeshScreenRatio = 0.0f;
+        cristoPreserveSettings.lodSmallMeshScreenRatio = 0.0f;
+
         for (std::size_t i = 0; i < meshes.size(); ++i) {
-            if (i < meshBounds.size() && !ShouldDrawMesh(meshBounds[i], frame, settings)) {
+            const bool validBounds = i < meshBounds.size() && meshBounds[i].valid;
+            const bool intersectsCristoArea = validBounds &&
+                (IntersectsAabb(meshBounds[i].min, meshBounds[i].max, settings.cristoAreaMin, settings.cristoAreaMax) ||
+                    IntersectsAabb(meshBounds[i].min, meshBounds[i].max, settings.cristoForestAreaMin, settings.cristoForestAreaMax));
+            const bool intersectsCristoCutoffArea = validBounds &&
+                IsCristoCutoffMesh(meshes[i], meshBounds[i], settings);
+
+            if (settings.hideCristoArea &&
+                intersectsCristoArea) {
+                ++stats.culledMeshes;
+                continue;
+            }
+            if (settings.hideCristoCutoffArea &&
+                intersectsCristoCutoffArea) {
+                ++stats.culledMeshes;
+                continue;
+            }
+            if (settings.hideVolcanoArea &&
+                validBounds &&
+                IntersectsAabb(meshBounds[i].min, meshBounds[i].max, settings.volcanoAreaMin, settings.volcanoAreaMax)) {
+                ++stats.culledMeshes;
+                continue;
+            }
+
+            if (validBounds && !ShouldDrawMesh(meshBounds[i], frame, intersectsCristoArea ? cristoPreserveSettings : settings)) {
                 ++stats.culledMeshes;
                 continue;
             }
