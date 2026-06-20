@@ -65,13 +65,13 @@ Then you compile with Ctrl + Shift + B or go to Build > Build Solution, During c
 copies the necessary resources to the output directory, such as: Models/Textures/Sounds/Image/DLLs from dependencies/bin/, etc.
 
 #Screenshots:
-![Uploading Captura de pantalla 2026-06-19 224458.png…]()
-![Uploading Captura de pantalla 2026-06-19 224532.png…]()
-![Uploading Captura de pantalla 2026-06-19 180556.png…]()
-![Uploading Captura de pantalla 2026-06-19 224751.png…]()
-![Uploading Captura de pantalla 2026-06-19 224821.png…]()
+- ![Uploading Captura de pantalla 2026-06-19 224458.png…]()
+- ![Uploading Captura de pantalla 2026-06-19 224532.png…]()
+- ![Uploading Captura de pantalla 2026-06-19 180556.png…]()
+- ![Uploading Captura de pantalla 2026-06-19 224751.png…]()
+- ![Uploading Captura de pantalla 2026-06-19 224821.png…]()
 
 #DemoVideo:
-https://youtu.be/9D8KhX2-yto?si=vGA9mRmrJpG-iUnv
+- https://youtu.be/9D8KhX2-yto?si=vGA9mRmrJpG-iUnv
 
 
