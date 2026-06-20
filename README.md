@@ -1,8 +1,8 @@
 ExplorerMaps
 Developers:\n
--Brenes Ruiz Andy Antony
--Ortiz Vega Bianka Marcela
--Castillo Vasquez Jeferson Evener
+- Brenes Ruiz Andy Antony
+- Ortiz Vega Bianka Marcela
+- Vasquez Castillo Jeferson Evener
 
 Technologies:\n
 - c++
