@@ -66,11 +66,11 @@ Then you compile with Ctrl + Shift + B or go to Build > Build Solution, During c
 copies the necessary resources to the output directory, such as: Models/Textures/Sounds/Image/DLLs from dependencies/bin/, etc.
 
 #Screenshots:
-- ![Uploading Captura de pantalla 2026-06-19 224458.png…]()
-- ![Uploading Captura de pantalla 2026-06-19 224532.png…]()
-- ![Uploading Captura de pantalla 2026-06-19 180556.png…]()
-- ![Uploading Captura de pantalla 2026-06-19 224751.png…]()
-- ![Uploading Captura de pantalla 2026-06-19 224821.png…]()
+- ![Image_1](Image-Readme/Image-1.png)
+- ![Image_2](Image-Readme/Image-2.png)
+- ![Image_3](Image-Readme/Image-3.png)
+- ![Image_4](Image-Readme/Image-4.png)
+- ![Image_5](Image-Readme/Image-1.png)
 
 #DemoVideo:
 - https://youtu.be/9D8KhX2-yto?si=vGA9mRmrJpG-iUnv
