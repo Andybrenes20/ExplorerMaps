@@ -1,27 +1,27 @@
 ExplorerMaps
-Developers:
+Developers:\n
 -Brenes Ruiz Andy Antony
 -Ortiz Vega Bianka Marcela
 -Castillo Vasquez Jeferson Evener
 
-Technologies:
--c++
--OpenGL
--GLEW
--GLFW
--GLM
--Dear Imgui
--Audio
--Miniaudio
+Technologies:\n
+- c++
+- OpenGL
+- GLEW
+- GLFW
+- GLM
+- Dear Imgui
+- Audio
+- Miniaudio
 
 Features:
--3D project developed in C++ with OpenGL.
--Exploration of an urban environment with 3D models.
--Camera and player movement system.
--Controllable vehicle within the scene.
--Dynamic weather and environment system.
--Main menu and interface using ImGui.
--Dependencies included in the project to facilitate compilation.
+- 3D project developed in C++ with OpenGL.
+- Exploration of an urban environment with 3D models.
+- Camera and player movement system.
+- Controllable vehicle within the scene.
+- Dynamic weather and environment system.
+- Main menu and interface using ImGui.
+- Dependencies included in the project to facilitate compilation.
 
 
 Description:
@@ -35,7 +35,7 @@ Users can explore the city in first - person view, drive a vehicle,
 change environmental conditions, and experience visual effects such as lighting,
 weather, fog, shadows, and a dynamic sky.
 
-The tour combines 3D rendering, environmental interaction,
+- The tour combines 3D rendering, environmental interaction,
 ambient audio, a traffic system, custom menus,
 and tourist areas to create a immersive virtual exploration experience.
 
