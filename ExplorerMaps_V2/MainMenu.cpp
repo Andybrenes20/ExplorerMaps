@@ -469,8 +469,8 @@ void MainMenu::DrawCredits() {
 
     ImGui::PushFont(bodyFont);
     const char* text = Localization::Text(
-        "EXPLORER MAPS\n\nEquipo ExplorerMaps\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener",
-        "EXPLORER MAPS\n\nExplorerMaps Team\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener");
+        "EXPLORER MAPS\n\nEquipo ExplorerMaps\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener\n\nObregon Torres Katerin Daniela",
+        "EXPLORER MAPS\n\nExplorerMaps Team\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener\n\nObregon Torres Katerin Daniela");
     const ImVec2 textSize = ImGui::CalcTextSize(text);
     drawList->AddText(
         ImVec2((display.x - textSize.x) * 0.5f, panelMin.y + 98.0f),
