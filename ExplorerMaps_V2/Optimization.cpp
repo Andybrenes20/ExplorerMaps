@@ -471,6 +471,8 @@ namespace Optimization {
                     IntersectsAabb(meshBounds[i].min, meshBounds[i].max, settings.cristoForestAreaMin, settings.cristoForestAreaMax));
             const bool intersectsCristoCutoffArea = validBounds &&
                 IsCristoCutoffMesh(meshes[i], meshBounds[i], settings);
+            const bool intersectsClockMonumentArea = validBounds &&
+                IntersectsAabb(meshBounds[i].min, meshBounds[i].max, settings.clockMonumentAreaMin, settings.clockMonumentAreaMax);
 
             if (settings.hideCristoArea &&
                 intersectsCristoArea) {
@@ -489,7 +491,9 @@ namespace Optimization {
                 continue;
             }
 
-            if (validBounds && !ShouldDrawMesh(meshBounds[i], frame, intersectsCristoArea ? cristoPreserveSettings : settings)) {
+            if (!intersectsClockMonumentArea &&
+                validBounds &&
+                !ShouldDrawMesh(meshBounds[i], frame, intersectsCristoArea ? cristoPreserveSettings : settings)) {
                 ++stats.culledMeshes;
                 continue;
             }

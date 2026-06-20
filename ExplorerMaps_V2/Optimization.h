@@ -45,6 +45,8 @@ namespace Optimization {
         glm::vec3 cristoCutoffAreaMax = glm::vec3(180.0f, 900.0f, 1740.0f);
         glm::vec3 volcanoAreaMin = glm::vec3(-2450.0f, 80.0f, -1100.0f);
         glm::vec3 volcanoAreaMax = glm::vec3(-830.0f, 720.0f, 700.0f);
+        glm::vec3 clockMonumentAreaMin = glm::vec3(120.0f, 35.0f, 165.0f);
+        glm::vec3 clockMonumentAreaMax = glm::vec3(240.0f, 180.0f, 295.0f);
     };
 
     struct FrameCulling {

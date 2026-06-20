@@ -989,8 +989,8 @@ float ComputeCristoCityFogIntensity(const glm::vec3& viewPosition, float current
 EnvironmentFrame BuildLocalizedFogFrame(const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
     EnvironmentFrame localizedFrame = frame;
     const float landmarkFog = ComputeLandmarkFogIntensity(frame, viewPosition, currentFrame);
-    const float cristoZCutoffFog = 1.0f - glm::smoothstep(-160.0f, -120.0f, viewPosition.z);
-    const float cristoXCutoffFog = 1.0f - glm::smoothstep(-700.0f, -660.0f, viewPosition.x);
+    const float cristoZCutoffFog = 1.0f - glm::smoothstep(-660.0f, -420.0f, viewPosition.z);
+    const float cristoXCutoffFog = 1.0f - glm::smoothstep(-1800.0f, -200.0f, viewPosition.x);
     const float cristoCutoffFog = (std::max)(cristoZCutoffFog, cristoXCutoffFog) * (0.82f + frame.rainIntensity * 0.12f);
     localizedFrame.fogIntensity = std::clamp((std::max)(landmarkFog, cristoCutoffFog), 0.0f, 0.86f);
 
@@ -1022,8 +1022,8 @@ bool ShouldHideCristoArea(const glm::vec3& viewPosition) {
 }
 
 bool ShouldHideCristoCutoffArea(const glm::vec3& viewPosition) {
-    constexpr float cristoCutoffZ = -160.0f;
-    constexpr float cristoCutoffX = -700.0f;
+    constexpr float cristoCutoffZ = -460.0f;
+    constexpr float cristoCutoffX = -980.0f;
     constexpr float displayRoundingTolerance = 0.5f;
     return viewPosition.z <= cristoCutoffZ + displayRoundingTolerance ||
         viewPosition.x <= cristoCutoffX + displayRoundingTolerance;
@@ -1087,8 +1087,8 @@ MonumentType DetectNearbyMonument(const glm::vec3& playerPosition) {
 
 void DrawMonumentInteractPrompt() {
     const ImVec2 display = ImGui::GetIO().DisplaySize;
-    const char* beforeKey = "PRESIONA ";
-    const char* afterKey = " PARA INSPECCIONAR MONUMENTO";
+    const char* beforeKey = Localization::Text("PRESIONA ", "PRESS ");
+    const char* afterKey = Localization::Text(" PARA INSPECCIONAR MONUMENTO", " TO INSPECT MONUMENT");
     const ImVec2 padding(22.0f, 10.0f);
     const ImVec2 beforeSize = ImGui::CalcTextSize(beforeKey);
     const ImVec2 keySize = ImGui::CalcTextSize("E");
@@ -1133,19 +1133,25 @@ void DrawProgrammedMonumentFicha(MonumentType type) {
     ImVec4 headerColor(1.0f, 1.0f, 1.0f, 1.0f);
 
     if (type == MONUMENT_RELOJ) {
-        title = "RELOJ DE DIRIAMBA";
-        description = "Construido en 1935, esta torre de 15.5 metros es el segundo monumento mas importante de la ciudad. Su estructura fue declarada Patrimonio Cultural en 2002.";
+        title = Localization::Text("RELOJ DE DIRIAMBA", "DIRIAMBA CLOCK");
+        description = Localization::Text(
+            "Construido en 1935, esta torre de 15.5 metros es el segundo monumento mas importante de la ciudad. Su estructura fue declarada Patrimonio Cultural en 2002.",
+            "Built in 1935, this 15.5-meter tower is the second most important monument in the city. Its structure was declared Cultural Heritage in 2002.");
         headerColor = ImVec4(0.98f, 0.73f, 0.05f, 1.0f);
     }
     else if (type == MONUMENT_VOLCAN) {
-        title = "VOLCAN MASAYA";
-        description = "Este volcan activo alberga el crater Santiago, uno de los pocos lugares del mundo con un lago de lava persistente. Como dato historico, el fraile espanol Francisco de Bobadilla coloco una gran cruz en su cumbre en 1529 para exorcizar al volcan, al que los conquistadores creian una entrada directa al infierno.";
+        title = Localization::Text("VOLCAN MASAYA", "MASAYA VOLCANO");
+        description = Localization::Text(
+            "Este volcan activo alberga el crater Santiago, uno de los pocos lugares del mundo con un lago de lava persistente. Como dato historico, el fraile espanol Francisco de Bobadilla coloco una gran cruz en su cumbre en 1529 para exorcizar al volcan, al que los conquistadores creian una entrada directa al infierno.",
+            "This active volcano contains the Santiago crater, one of the few places in the world with a persistent lava lake. Historically, the Spanish friar Francisco de Bobadilla placed a large cross on its summit in 1529 to exorcise the volcano, which conquistadors believed was a direct entrance to hell.");
         headerColor = ImVec4(1.00f, 0.25f, 0.05f, 1.0f);
         panelHeight = 470.0f;
     }
     else if (type == MONUMENT_CRISTO) {
-        title = "CRISTO REDENTOR";
-        description = "El Cristo Redentor o Cristo del Corcovado es una estatua art deco que representa a Jesus de Nazaret, con los brazos abiertos, mostrando a la ciudad de Rio de Janeiro, Brasil.";
+        title = Localization::Text("CRISTO REDENTOR", "CHRIST THE REDEEMER");
+        description = Localization::Text(
+            "El Cristo Redentor o Cristo del Corcovado es una estatua art deco que representa a Jesus de Nazaret, con los brazos abiertos, mostrando a la ciudad de Rio de Janeiro, Brasil.",
+            "Christ the Redeemer, also known as Christ of Corcovado, is an art deco statue representing Jesus of Nazareth with open arms overlooking the city of Rio de Janeiro, Brazil.");
         headerColor = ImVec4(0.62f, 0.84f, 1.0f, 1.0f);
     }
 

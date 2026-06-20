@@ -737,51 +737,38 @@ void MainMenu::DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMa
     drawList->AddRectFilled(areaMin, areaMax, IM_COL32(7, 13, 22, 225), 6.0f);
     drawList->AddRect(areaMin, areaMax, IM_COL32(65, 135, 200, 150), 6.0f, 15, 1.5f);
 
-    ImVec2 imageMin(areaMin.x + w * 0.26f, areaMin.y + h * 0.09f);
-    float imageWidth = w * 0.48f;
+    float imageWidth = w * 0.20f;
     float imageHeight = imageWidth * 0.55f;
+    ImVec2 imageMin(areaMax.x - imageWidth - w * 0.035f, areaMin.y + h * 0.025f);
     if (dualsense.texture != 0) {
         imageHeight = imageWidth * static_cast<float>(dualsense.height) / (std::max)(static_cast<float>(dualsense.width), 1.0f);
+        imageMin = ImVec2(areaMax.x - imageWidth - w * 0.035f, areaMin.y + h * 0.025f);
         drawList->AddImage(
             reinterpret_cast<ImTextureID>(static_cast<intptr_t>(dualsense.texture)),
             imageMin,
             ImVec2(imageMin.x + imageWidth, imageMin.y + imageHeight),
             ImVec2(0.0f, 0.0f),
-            ImVec2(1.0f, 1.0f));
+            ImVec2(1.0f, 1.0f),
+            IM_COL32(255, 255, 255, 210));
     }
 
-    auto drawCallout = [&](const char* button, const char* action, const ImVec2& labelPos, const ImVec2& target, bool leftSide) {
+    auto drawControl = [&](const char* button, const char* action, float y) {
+        const ImVec2 keyMin(areaMin.x + w * 0.08f, y);
+        const ImVec2 keyMax(keyMin.x + w * 0.18f, y + h * 0.055f);
+        drawList->AddRectFilled(ImVec2(keyMin.x + 3.0f, keyMin.y + 4.0f), ImVec2(keyMax.x + 3.0f, keyMax.y + 4.0f), IM_COL32(0, 0, 0, 120), 4.0f);
+        drawList->AddRectFilled(keyMin, keyMax, IM_COL32(23, 44, 68, 255), 4.0f);
+        drawList->AddRect(keyMin, keyMax, IM_COL32(242, 185, 0, 220), 4.0f, 15, 1.5f);
         ImGui::PushFont(bodyFont);
         const ImVec2 buttonSize = ImGui::CalcTextSize(button);
-        const ImVec2 actionSize = ImGui::CalcTextSize(action);
-        const float labelWidth = (std::max)(buttonSize.x, actionSize.x) + 18.0f;
-        const float labelHeight = buttonSize.y + actionSize.y + 13.0f;
-        const ImVec2 labelMin = leftSide ? labelPos : ImVec2(labelPos.x - labelWidth, labelPos.y);
-        const ImVec2 labelMax(labelMin.x + labelWidth, labelMin.y + labelHeight);
-        const ImVec2 anchor(leftSide ? labelMax.x : labelMin.x, labelMin.y + labelHeight * 0.5f);
-        const ImVec2 elbow(leftSide ? anchor.x + 18.0f : anchor.x - 18.0f, anchor.y);
-
-        drawList->AddRectFilled(labelMin, labelMax, IM_COL32(13, 29, 48, 245), 4.0f);
-        drawList->AddRect(labelMin, labelMax, IM_COL32(79, 172, 235, 220), 4.0f, 15, 1.5f);
-        drawList->AddText(ImVec2(labelMin.x + 9.0f, labelMin.y + 5.0f), IM_COL32(255, 202, 35, 255), button);
-        drawList->AddText(ImVec2(labelMin.x + 9.0f, labelMin.y + 7.0f + buttonSize.y), IM_COL32(225, 233, 242, 255), action);
-        drawList->AddLine(anchor, elbow, IM_COL32(105, 198, 255, 230), 1.8f);
-        drawList->AddLine(elbow, target, IM_COL32(105, 198, 255, 230), 1.8f);
-        drawList->AddCircleFilled(target, 3.5f, IM_COL32(255, 202, 35, 255));
+        drawList->AddText(ImVec2((keyMin.x + keyMax.x - buttonSize.x) * 0.5f, (keyMin.y + keyMax.y - buttonSize.y) * 0.5f), IM_COL32(255, 215, 72, 255), button);
+        drawList->AddText(ImVec2(areaMin.x + w * 0.34f, y + h * 0.012f), IM_COL32(228, 234, 242, 255), action);
         ImGui::PopFont();
     };
 
-    const ImVec2 imageCenter(imageMin.x + imageWidth * 0.5f, imageMin.y + imageHeight * 0.5f);
-    drawCallout(Localization::Text("STICK IZQ.", "LEFT STICK"), Localization::Text("MOVERSE", "MOVE"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.30f, imageMin.y + imageHeight * 0.66f), true);
-    drawCallout("L2", Localization::Text("CORRER", "RUN"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.16f, imageMin.y + imageHeight * 0.18f), true);
-    drawCallout(Localization::Text("CRUCETA", "D-PAD"), Localization::Text("NAVEGAR MENU", "NAVIGATE MENU"), ImVec2(areaMin.x + 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.27f, imageMin.y + imageHeight * 0.42f), true);
-    drawCallout(Localization::Text("STICK DER.", "RIGHT STICK"), Localization::Text("MOVER CAMARA", "MOVE CAMERA"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.05f), ImVec2(imageMin.x + imageWidth * 0.68f, imageMin.y + imageHeight * 0.66f), false);
-    drawCallout("R2", Localization::Text("AVANZAR", "DRIVE"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.28f), ImVec2(imageMin.x + imageWidth * 0.84f, imageMin.y + imageHeight * 0.18f), false);
-    drawCallout(Localization::Text("X / CIRCULO", "X / CIRCLE"), Localization::Text("ACEPTAR / VOLVER", "ACCEPT / BACK"), ImVec2(areaMax.x - 10.0f, areaMin.y + h * 0.51f), ImVec2(imageMin.x + imageWidth * 0.79f, imageMin.y + imageHeight * 0.42f), false);
-
-    ImGui::PushFont(bodyFont);
-    const char* footer = Localization::Text("CUADRADO: INTERACTUAR     OPTIONS: PAUSA", "SQUARE: INTERACT     OPTIONS: PAUSE");
-    const ImVec2 footerSize = ImGui::CalcTextSize(footer);
-    drawList->AddText(ImVec2(imageCenter.x - footerSize.x * 0.5f, areaMax.y - h * 0.075f), IM_COL32(225, 233, 242, 255), footer);
-    ImGui::PopFont();
+    drawControl(Localization::Text("STICK IZQ.", "LEFT STICK"), Localization::Text("MOVERSE", "MOVE"), areaMin.y + h * 0.035f);
+    drawControl(Localization::Text("STICK DER.", "RIGHT STICK"), Localization::Text("MOVER CAMARA", "MOVE CAMERA"), areaMin.y + h * 0.105f);
+    drawControl("L2 / R2", Localization::Text("CORRER / AVANZAR", "RUN / DRIVE"), areaMin.y + h * 0.175f);
+    drawControl(Localization::Text("CRUCETA", "D-PAD"), Localization::Text("NAVEGAR MENU", "NAVIGATE MENU"), areaMin.y + h * 0.245f);
+    drawControl(Localization::Text("X / CIRCULO", "X / CIRCLE"), Localization::Text("ACEPTAR / VOLVER", "ACCEPT / BACK"), areaMin.y + h * 0.315f);
+    drawControl(Localization::Text("CUAD. / OPTIONS", "SQUARE / OPTIONS"), Localization::Text("INTERACTUAR / PAUSA", "INTERACT / PAUSE"), areaMin.y + h * 0.385f);
 }
