@@ -75,4 +75,9 @@ copies the necessary resources to the output directory, such as: Models/Textures
 #DemoVideo:
 - https://youtu.be/9D8KhX2-yto?si=vGA9mRmrJpG-iUnv
 
+#Requirements:
+- intel i3 
+- 8 GB Ram
+- 2 GB of storage
+
 
