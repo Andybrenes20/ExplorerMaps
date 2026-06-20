@@ -1,11 +1,11 @@
 ExplorerMaps
-Developers:\n
+Developers:
 - Brenes Ruiz Andy Antony
 - Ortiz Vega Bianka Marcela
 - Vasquez Castillo Jeferson Evener
 - Obregon Torres Katerin Daniela
 
-Technologies:\n
+Technologies:
 - c++
 - OpenGL
 - GLEW
