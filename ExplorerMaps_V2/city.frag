@@ -23,6 +23,7 @@ uniform vec3 celestialLightPosition;
 uniform float shadowStrength;
 uniform vec3 objectTint;
 uniform float objectAlpha;
+uniform float vehicleSurface;
 
 struct DirLight {
     vec3 direction;
@@ -304,8 +305,8 @@ void main() {
         float pane = broadFacade * (1.0 - smoothstep(0.26, 0.66, abs(normal.y))) * max(glassMask, (1.0 - smoothstep(0.06, 0.24, luma)) * 0.58);
         float windowMask = pane * band * column * step(0.34, seed) * smoothstep(0.04, 0.68, windowLightIntensity);
         vec3 windowColor = mix(vec3(1.0, 0.56, 0.24), vec3(1.0, 0.88, 0.58), hash31(cell + 17.0));
-        vec3 windowGlow = windowColor * windowMask * (0.92 + night * 1.55 + rain * 0.35);
-        float neon = saturatedMask(base) * verticalSurface * night;
+        vec3 windowGlow = windowColor * windowMask * (0.92 + night * 1.55 + rain * 0.35) * (1.0 - vehicleSurface);
+        float neon = saturatedMask(base) * verticalSurface * night * (1.0 - vehicleSurface);
         vec3 neonColor = base * base * (1.4 + rain * 0.5);
         lit += windowGlow;
         lit += windowColor * pane * step(0.47, seed) * exp(-(local.y * local.y) * 20.0) * windowLightIntensity * 0.012;
@@ -355,6 +356,8 @@ void main() {
     fog += mix(vec3(0.006, 0.008, 0.014), vec3(0.018, 0.055, 0.13), rain) * night;
     lit = mix(lit, fog, distanceFog);
 
+    float vehicleHighlight = vehicleSurface * smoothstep(0.68, 1.45, dot(lit, vec3(0.2126, 0.7152, 0.0722)));
+    lit *= mix(1.0, 0.78, vehicleHighlight);
     lit = tonemap(lit * mix(0.88, 1.08, night));
     float gradedLuma = dot(lit, vec3(0.299, 0.587, 0.114));
     lit = mix(vec3(gradedLuma), lit, mix(1.05, mix(1.12, 1.28, rain), night));

@@ -1,0 +1,7 @@
+SONIDOS DEL VEHICULO
+
+R32_Motor.wav, R32_Idle.wav, R32_Mid.wav, R32_High.wav,
+R32_Turbo.wav, R32_Cambio.wav, R32_Derrape.wav
+Origen: copia local de Most Wanted Ultimate Edition proporcionada por el usuario.
+Uso: pruebas locales del proyecto. No redistribuir sin verificar los permisos
+de sus respectivos autores.

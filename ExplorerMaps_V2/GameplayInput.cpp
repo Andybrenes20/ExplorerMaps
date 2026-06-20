@@ -42,6 +42,7 @@ namespace GameplayInput {
         input.leftTrigger = NormalizeTriggerAxis(state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]);
         input.rightTrigger = NormalizeTriggerAxis(state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER]);
         input.interactDown = state.buttons[GLFW_GAMEPAD_BUTTON_X] == GLFW_PRESS;
+        input.handbrakeDown = state.buttons[GLFW_GAMEPAD_BUTTON_A] == GLFW_PRESS;
         input.pauseDown = state.buttons[GLFW_GAMEPAD_BUTTON_START] == GLFW_PRESS;
         input.handbrakeDown = state.buttons[GLFW_GAMEPAD_BUTTON_B] == GLFW_PRESS;
         return input;

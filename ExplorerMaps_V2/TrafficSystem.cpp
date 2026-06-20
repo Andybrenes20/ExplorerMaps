@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <glm/gtc/constants.hpp>
+
 #include "PhysicsWorld.h"
 #include "Shader.h"
 #include "VehicleController.h"
@@ -12,90 +14,60 @@ namespace {
     constexpr float kRecycleDistance = 110.0f;
     constexpr float kDrawDistance = 180.0f;
     constexpr float kWheelRadius = 0.33f;
-    constexpr float kGroundOffset = 0.13f;
+    // Matches the visual origin of the shared Nissan model.
+    constexpr float kGroundOffset = 0.04f;
+    constexpr float kPlayerHeight = 1.75f;
     constexpr float kRespawnDelay = 0.75f;
-    constexpr float kFollowingDistance = 14.0f;
+    constexpr float kFollowingDistance = 20.0f;
+    constexpr float kPlayerAvoidDistance = 13.0f;
 
-    struct TrafficRoute {
-        glm::vec3 start;
-        glm::vec3 end;
-        float laneOffset;
-    };
-    //Rutas de Trafico
-    const TrafficRoute kTrafficRoutes[] = {
-        { glm::vec3(424.5f, 37.8f, 161.3f), glm::vec3(-171.8f, 37.8f, 158.5f), -3.2f },
-        { glm::vec3(309.7f, 37.8f, 135.5f), glm::vec3(308.8f, 27.0f, -37.8f), -3.2f },
-        { glm::vec3(286.7f, 52.8f, 206.8f), glm::vec3(-109.9f, 52.8f, 207.0f), -12.0f },
-        { glm::vec3(-131.6f, 52.8f, 211.0f), glm::vec3(278.5f, 52.8f, 212.1f), -1.0f },
-        { glm::vec3(-139.4f, 37.8f, 141.2f), glm::vec3(277.9f, 37.8f, 140.0f), -4.5f },
-        { glm::vec3(-270.7f, 37.8f, -96.2f), glm::vec3(-961.2f, 37.8f, -216.4f), 9.0f },
-        { glm::vec3(-976.3f, 37.8f, -199.4f), glm::vec3(-282.4f, 37.8f, -79.0f), 2.0f },
-
-    };
-    constexpr std::size_t kTrafficRouteCount = sizeof(kTrafficRoutes) / sizeof(kTrafficRoutes[0]);
-    constexpr std::size_t kCarsPerRoute = 5;
-    constexpr float kRoutePadding = 10.0f;
-
-    glm::vec3 RouteDelta(const TrafficRoute& route) {
-        return glm::vec3(route.end.x - route.start.x, 0.0f, route.end.z - route.start.z);
-    }
-
-    float RouteLength(const TrafficRoute& route) {
-        return glm::length(RouteDelta(route));
-    }
-
-    glm::vec3 RouteDirection(const TrafficRoute& route) {
-        const glm::vec3 delta = RouteDelta(route);
-        const float length = glm::length(delta);
-        return length > 0.001f ? delta / length : glm::vec3(-1.0f, 0.0f, 0.0f);
-    }
-
-    float ProjectOnRoute(const glm::vec3& position, const TrafficRoute& route) {
-        return glm::dot(glm::vec3(position.x - route.start.x, 0.0f, position.z - route.start.z), RouteDirection(route));
-    }
-
-    glm::vec3 RoutePointAt(float distance, const TrafficRoute& route) {
-        const float routeLength = RouteLength(route);
-        const float clampedDistance = (std::clamp)(distance, kRoutePadding, routeLength - kRoutePadding);
-        const float routeAmount = routeLength > 0.001f ? clampedDistance / routeLength : 0.0f;
-        return route.start + (route.end - route.start) * routeAmount;
+    glm::vec3 SnapToStreetAxis(const glm::vec3& direction) {
+        return std::abs(direction.x) > std::abs(direction.z)
+            ? glm::vec3(direction.x >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f)
+            : glm::vec3(0.0f, 0.0f, direction.z >= 0.0f ? 1.0f : -1.0f);
     }
 }
 
 void TrafficSystem::Initialize() {
-    const glm::vec3 colors[] = {
-        glm::vec3(0.95f, 0.22f, 0.18f),
-        glm::vec3(0.20f, 0.48f, 0.95f),
-        glm::vec3(0.92f, 0.76f, 0.18f),
-        glm::vec3(0.20f, 0.78f, 0.42f),
-        glm::vec3(0.82f, 0.30f, 0.88f),
-    };
-
-    cars.resize(kTrafficRouteCount * kCarsPerRoute);
+    cars.resize(7);
+    cars[0].color = glm::vec3(0.72f, 0.12f, 0.10f);
+    cars[1].color = glm::vec3(0.10f, 0.25f, 0.52f);
+    cars[2].color = glm::vec3(0.72f, 0.68f, 0.58f);
+    cars[3].color = glm::vec3(0.10f, 0.12f, 0.14f);
+    cars[4].color = glm::vec3(0.36f, 0.42f, 0.34f);
+    cars[5].color = glm::vec3(0.58f, 0.58f, 0.62f);
+    cars[6].color = glm::vec3(0.38f, 0.16f, 0.12f);
 
     for (std::size_t i = 0; i < cars.size(); ++i) {
         TrafficCar& car = cars[i];
-        car.color = colors[i % 5];
-        car.directionSign = 1.0f;
-        car.routeIndex = (std::min)(i / kCarsPerRoute, kTrafficRouteCount - 1);
-        car.cruiseSpeed = 8.5f + static_cast<float>(i % 3) * 0.75f;
+        car.directionSign = i < 4 ? 1.0f : -1.0f;
+        car.laneSide = car.directionSign;
+        car.cruiseSpeed = 7.4f + static_cast<float>((i * 7) % 5) * 0.72f;
+        car.acceleration = 2.2f + static_cast<float>(i % 4) * 0.42f;
+        car.behaviorPhase = static_cast<float>(i) * 1.73f;
         car.speed = car.cruiseSpeed;
     }
 }
 
 void TrafficSystem::Regenerate(PhysicsWorld& city, const glm::vec3& userPosition, const glm::vec3& userForward) {
+    const glm::vec3 zoneMovement = userPosition - activeZoneCenter;
+    const glm::vec3 desiredDirection = zoneReady && glm::length(glm::vec2(zoneMovement.x, zoneMovement.z)) > 1.0f
+        ? zoneMovement
+        : userForward;
+    travelDirection = SnapToStreetAxis(desiredDirection);
     activeZoneCenter = userPosition;
 
-    const float distances[] = { 48.0f, 68.0f, 88.0f, 58.0f, 82.0f };
+    const float distances[] = { 48.0f, 68.0f, 88.0f, 58.0f, 82.0f, 104.0f, 74.0f };
     for (std::size_t i = 0; i < cars.size(); ++i) {
         TrafficCar& car = cars[i];
         car.speed = car.cruiseSpeed;
         car.groundPitch = 0.0f;
         car.groundCheckTimer = 0.0f;
         car.obstacleCheckTimer = 0.0f;
+        car.blockedTimer = 0.0f;
         car.respawnTimer = 0.0f;
-        car.respawnDistance = distances[i % 5];
-        car.active = FindLaneSpawn(car, city, userPosition, userForward, car.directionSign, distances[i % 5]);
+        car.respawnDistance = distances[i];
+        car.active = FindLaneSpawn(car, city, userPosition, userForward, car.laneSide, car.directionSign, distances[i]);
         if (!car.active) {
             car.respawnTimer = kRespawnDelay + static_cast<float>(i) * 0.45f;
         }
@@ -108,43 +80,30 @@ bool TrafficSystem::FindLaneSpawn(
     PhysicsWorld& city,
     const glm::vec3& userPosition,
     const glm::vec3& userForward,
+    float laneSide,
     float directionSign,
     float distance) {
-    const TrafficRoute& route = kTrafficRoutes[car.routeIndex];
-    const glm::vec3 routeDirection = RouteDirection(route);
-    const glm::vec3 right(routeDirection.z, 0.0f, -routeDirection.x);
-    const float routeLength = RouteLength(route);
-    const float anchorDistance = (std::clamp)(ProjectOnRoute(userPosition, route), kRoutePadding, routeLength - kRoutePadding);
-    const bool keepBehindCamera = car.routeIndex == 0;
+    const glm::vec3 right(travelDirection.z, 0.0f, -travelDirection.x);
     const glm::vec3 flatView = glm::length(glm::vec2(userForward.x, userForward.z)) > 0.001f
         ? glm::normalize(glm::vec3(userForward.x, 0.0f, userForward.z))
-        : routeDirection;
+        : travelDirection;
     const float longitudinalOffsets[] = { -distance, -distance - 18.0f, distance, distance + 18.0f };
-    const float laneOffsets[] = { route.laneOffset };
+    const float laneOffsets[] = { laneSide * 3.2f, laneSide * 5.8f, -laneSide * 3.2f };
 
     for (float longitudinal : longitudinalOffsets) {
-        const float candidateDistance = anchorDistance + longitudinal;
-        if (candidateDistance < kRoutePadding || candidateDistance > routeLength - kRoutePadding) {
-            continue;
-        }
-
         for (float lateral : laneOffsets) {
-            const glm::vec3 routeCenter = RoutePointAt(candidateDistance, route);
-            const glm::vec3 candidate = routeCenter + right * lateral;
-            const glm::vec3 toCandidateFlat(candidate.x - userPosition.x, 0.0f, candidate.z - userPosition.z);
-            if (keepBehindCamera &&
-                glm::length(glm::vec2(toCandidateFlat.x, toCandidateFlat.z)) > 0.001f &&
-                glm::dot(glm::normalize(toCandidateFlat), flatView) > 0.18f) {
+            const glm::vec3 candidate = userPosition + travelDirection * longitudinal + right * lateral;
+            const glm::vec3 toCandidate = glm::normalize(glm::vec3(candidate.x - userPosition.x, 0.0f, candidate.z - userPosition.z));
+            if (glm::dot(toCandidate, flatView) > 0.18f && std::abs(longitudinal) < 64.0f) {
                 continue;
             }
 
             car.position = candidate;
-            const glm::vec3 carDirection = routeDirection * directionSign;
+            const glm::vec3 carDirection = travelDirection * directionSign;
             car.yaw = std::atan2(carDirection.x, carDirection.z);
             bool overlapsTraffic = false;
             for (const TrafficCar& other : cars) {
-                if (&other != &car && other.active && other.routeIndex == car.routeIndex &&
-                    glm::distance(glm::vec2(other.position.x, other.position.z), glm::vec2(candidate.x, candidate.z)) < 18.0f) {
+                if (&other != &car && other.active && glm::distance(glm::vec2(other.position.x, other.position.z), glm::vec2(candidate.x, candidate.z)) < 18.0f) {
                     overlapsTraffic = true;
                     break;
                 }
@@ -152,13 +111,9 @@ bool TrafficSystem::FindLaneSpawn(
             if (overlapsTraffic) {
                 continue;
             }
-            if (!PlaceOnGround(car, city, true)) {
-                continue;
-            }
-
-            const bool heightMatchesRoute = car.routeIndex != 0 ||
-                std::abs(car.position.y - (routeCenter.y + kGroundOffset)) < 3.0f;
-            if (heightMatchesRoute && IsLaneClear(car, city)) {
+            if (PlaceOnGround(car, city, true) &&
+                std::abs(car.position.y - (userPosition.y - kPlayerHeight + kGroundOffset)) < 3.0f &&
+                IsLaneClear(car, city)) {
                 return true;
             }
         }
@@ -190,18 +145,23 @@ bool TrafficSystem::PlaceOnGround(TrafficCar& car, PhysicsWorld& city, bool imme
     const glm::vec3 forward(std::sin(car.yaw), 0.0f, std::cos(car.yaw));
     float centerDistance = 0.0f;
     float frontDistance = 0.0f;
+    float rearDistance = 0.0f;
     const glm::vec3 centerOrigin = car.position + glm::vec3(0.0f, 5.0f, 0.0f);
     const glm::vec3 frontOrigin = centerOrigin + forward * 1.35f;
+    const glm::vec3 rearOrigin = centerOrigin - forward * 1.35f;
     if (!city.Raycast(centerOrigin, glm::vec3(0.0f, -1.0f, 0.0f), centerDistance) || centerDistance > 12.0f ||
-        !city.Raycast(frontOrigin, glm::vec3(0.0f, -1.0f, 0.0f), frontDistance) || frontDistance > 12.0f) {
+        !city.Raycast(frontOrigin, glm::vec3(0.0f, -1.0f, 0.0f), frontDistance) || frontDistance > 12.0f ||
+        !city.Raycast(rearOrigin, glm::vec3(0.0f, -1.0f, 0.0f), rearDistance) || rearDistance > 12.0f) {
         return false;
     }
 
     const float centerY = centerOrigin.y - centerDistance + kGroundOffset;
     const float frontY = frontOrigin.y - frontDistance + kGroundOffset;
-    const float targetPitch = -std::atan2(frontY - centerY, 1.35f);
+    const float rearY = rearOrigin.y - rearDistance + kGroundOffset;
+    const float targetY = (centerY * 2.0f + frontY + rearY) * 0.25f;
+    const float targetPitch = -std::atan2(frontY - rearY, 2.70f);
     const float blend = immediate ? 1.0f : 0.45f;
-    car.position.y += (centerY - car.position.y) * blend;
+    car.position.y += (targetY - car.position.y) * blend;
     car.groundPitch += (targetPitch - car.groundPitch) * blend;
     return true;
 }
@@ -216,7 +176,7 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
             car.respawnTimer -= safeDeltaTime;
             if (car.respawnTimer <= 0.0f) {
                 const std::size_t carIndex = static_cast<std::size_t>(&car - cars.data());
-                car.active = FindLaneSpawn(car, city, userPosition, userForward, car.directionSign, car.respawnDistance);
+                car.active = FindLaneSpawn(car, city, userPosition, userForward, car.laneSide, car.directionSign, car.respawnDistance);
                 if (car.active) {
                     car.speed = car.cruiseSpeed;
                     car.groundCheckTimer = 0.0f;
@@ -231,40 +191,59 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
             continue;
         }
         const glm::vec3 forward(std::sin(car.yaw), 0.0f, std::cos(car.yaw));
-        float targetSpeed = car.cruiseSpeed;
+        car.behaviorPhase += safeDeltaTime * (0.32f + car.cruiseSpeed * 0.012f);
+        float targetSpeed = car.cruiseSpeed * (0.92f + std::sin(car.behaviorPhase) * 0.08f);
+        bool mustBrake = false;
         for (const TrafficCar& other : cars) {
-            if (&other == &car || !other.active || other.routeIndex != car.routeIndex || other.directionSign != car.directionSign) {
+            if (&other == &car || !other.active || other.directionSign != car.directionSign) {
                 continue;
             }
             const glm::vec3 separation = other.position - car.position;
             const float forwardDistance = glm::dot(separation, forward);
             const float sideDistance = std::abs(glm::dot(separation, glm::vec3(forward.z, 0.0f, -forward.x)));
             if (forwardDistance > 0.0f && forwardDistance < kFollowingDistance && sideDistance < 4.5f) {
-                targetSpeed = (std::min)(targetSpeed, other.speed * (forwardDistance / kFollowingDistance));
+                const float gap = glm::smoothstep(4.5f, kFollowingDistance, forwardDistance);
+                targetSpeed = (std::min)(targetSpeed, other.speed * gap);
+                mustBrake = forwardDistance < 8.0f;
             }
         }
-        car.speed += (targetSpeed - car.speed) * (std::clamp)(safeDeltaTime * 3.5f, 0.0f, 1.0f);
+        const glm::vec3 toPlayer = userPosition - car.position;
+        const float playerAhead = glm::dot(toPlayer, forward);
+        const float playerSide = std::abs(glm::dot(toPlayer, glm::vec3(forward.z, 0.0f, -forward.x)));
+        if (playerAhead > 0.0f && playerAhead < kPlayerAvoidDistance && playerSide < 3.3f) {
+            targetSpeed *= glm::smoothstep(2.5f, kPlayerAvoidDistance, playerAhead);
+            mustBrake = playerAhead < 6.0f;
+        }
+
+        const float response = targetSpeed < car.speed ? (mustBrake ? 7.5f : 4.2f) : car.acceleration;
+        car.speed += (targetSpeed - car.speed) * (std::clamp)(safeDeltaTime * response, 0.0f, 1.0f);
+        car.speed = (std::max)(car.speed, 0.0f);
         car.position += forward * car.speed * safeDeltaTime;
         car.wheelSpin += car.speed * safeDeltaTime / kWheelRadius;
         car.groundCheckTimer -= safeDeltaTime;
         car.obstacleCheckTimer -= safeDeltaTime;
 
-        const TrafficRoute& route = kTrafficRoutes[car.routeIndex];
-        const float routeDistance = ProjectOnRoute(car.position, route);
-        bool recycle = routeDistance < -kRoutePadding || routeDistance > RouteLength(route) + kRoutePadding ||
-            glm::distance(glm::vec2(car.position.x, car.position.z), glm::vec2(userPosition.x, userPosition.z)) > kRecycleDistance;
+        bool recycle = glm::distance(glm::vec2(car.position.x, car.position.z), glm::vec2(userPosition.x, userPosition.z)) > kRecycleDistance;
         if (!recycle && car.groundCheckTimer <= 0.0f) {
             recycle = !PlaceOnGround(car, city, false);
             car.groundCheckTimer = 0.18f;
         }
         if (!recycle && car.obstacleCheckTimer <= 0.0f) {
-            float obstacleDistance = 4.0f;
-            recycle = city.Raycast(car.position + glm::vec3(0.0f, 0.8f, 0.0f) + forward * 1.4f, forward, obstacleDistance) &&
-                obstacleDistance < 4.0f;
-            car.obstacleCheckTimer = 0.35f;
+            float obstacleDistance = 0.0f;
+            const bool obstacleAhead = city.Raycast(car.position + glm::vec3(0.0f, 0.8f, 0.0f) + forward * 1.4f, forward, obstacleDistance) &&
+                obstacleDistance < 8.0f;
+            if (obstacleAhead) {
+                car.speed *= 0.32f;
+                car.blockedTimer += 0.32f;
+                recycle = car.blockedTimer > 2.4f;
+            }
+            else {
+                car.blockedTimer = (std::max)(0.0f, car.blockedTimer - 0.7f);
+            }
+            car.obstacleCheckTimer = 0.32f;
         }
         if (recycle) {
-            car.active = FindLaneSpawn(car, city, userPosition, userForward, car.directionSign, 82.0f);
+            car.active = FindLaneSpawn(car, city, userPosition, userForward, car.laneSide, car.directionSign, 82.0f);
             if (!car.active) {
                 car.respawnDistance = 82.0f;
                 car.respawnTimer = kRespawnDelay;

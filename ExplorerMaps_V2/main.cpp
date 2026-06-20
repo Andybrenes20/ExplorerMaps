@@ -69,6 +69,16 @@ const float WORLD_MAX_X = 4550.0f;
 const float WORLD_MIN_Z = -3350.0f;
 const float WORLD_MAX_Z = 4950.0f;
 
+struct TravelDestination {
+    glm::vec3 position;
+    glm::vec3 lookAt;
+};
+
+const TravelDestination TRAVEL_CITY = { PLAYER_SPAWN, PLAYER_SPAWN + glm::vec3(0.0f, 0.0f, -20.0f) };
+const TravelDestination TRAVEL_CLOCK = { glm::vec3(180.3f, 52.8f, 193.2f), glm::vec3(179.65f, 72.0f, 223.75f) };
+const TravelDestination TRAVEL_STATUE = { glm::vec3(-430.7f, 391.9f, 885.4f), glm::vec3(-430.7f, 393.0f, 915.0f) };
+const TravelDestination TRAVEL_VOLCANO = { glm::vec3(-630.5f, 37.8f, -145.6f), glm::vec3(-790.0f, 78.0f, -160.0f) };
+
 // --- VARIABLES DE BARRA DE PROGRESO ---
 std::atomic<float> currentLoadingProgress{ 0.0f };
 bool loadingStarted = false;
@@ -142,6 +152,7 @@ void StartRunningAudio(bool cristoZone);
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame);
 void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame);
 glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius);
+void TravelTo(const TravelDestination& destination);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -603,6 +614,27 @@ int main() {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 firstMouse = true;
             }
+            else if (pauseAction == MainMenuAction::TravelCity ||
+                pauseAction == MainMenuAction::TravelClock ||
+                pauseAction == MainMenuAction::TravelStatue ||
+                pauseAction == MainMenuAction::TravelVolcano) {
+                vehicle.ResetForMainMenu();
+                const TravelDestination* destination = &TRAVEL_CITY;
+                if (pauseAction == MainMenuAction::TravelClock) {
+                    destination = &TRAVEL_CLOCK;
+                }
+                else if (pauseAction == MainMenuAction::TravelStatue) {
+                    destination = &TRAVEL_STATUE;
+                }
+                else if (pauseAction == MainMenuAction::TravelVolcano) {
+                    destination = &TRAVEL_VOLCANO;
+                }
+                TravelTo(*destination);
+                vehicle.SetAudioPaused(false);
+                currentState = STATE_RUNNING;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                firstMouse = true;
+            }
             else if (pauseAction == MainMenuAction::ReturnToMainMenu) {
                 vehicle.ResetForMainMenu();
                 environmentAudio.StopAmbient();
@@ -1010,9 +1042,19 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
+void TravelTo(const TravelDestination& destination) {
+    cameraPos = destination.position;
+    cameraFront = glm::normalize(destination.lookAt - destination.position);
+    yaw = glm::degrees(std::atan2(cameraFront.z, cameraFront.x));
+    pitch = glm::degrees(std::asin(glm::clamp(cameraFront.y, -1.0f, 1.0f)));
+    firstMouse = true;
+    isFlying = false;
+}
+
 void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const glm::vec3& viewPosition, float currentFrame) {
     shader.setVec3("objectTint", glm::vec3(1.0f));
     shader.setFloat("objectAlpha", 1.0f);
+    shader.setFloat("vehicleSurface", 0.0f);
     shader.setVec3("viewPos", viewPosition);
     shader.setVec3("light.direction", frame.activeLightDir);
     shader.setVec3("celestialLightPosition", frame.mainLightPosition);
