@@ -22,8 +22,8 @@ namespace {
     }
 
     void DrawCoveredImage(ImDrawList* drawList, const MainMenu::Background& image, const ImVec2& display, float alpha) {
-        const float displayAspect = display.x / std::max(display.y, 1.0f);
-        const float imageAspect = static_cast<float>(image.width) / std::max(static_cast<float>(image.height), 1.0f);
+        const float displayAspect = display.x / (std::max)(display.y, 1.0f);
+        const float imageAspect = static_cast<float>(image.width) / (std::max)(static_cast<float>(image.height), 1.0f);
 
         ImVec2 uvMin(0.0f, 0.0f);
         ImVec2 uvMax(1.0f, 1.0f);
@@ -407,12 +407,12 @@ void MainMenu::DrawBackground(float currentTime) {
         return;
     }
 
-    const float slide = std::max(currentTime, 0.0f) / kSlideSeconds;
+    const float slide = (std::max)(currentTime, 0.0f) / kSlideSeconds;
     const int current = static_cast<int>(slide) % static_cast<int>(backgrounds.size());
     const int next = (current + 1) % static_cast<int>(backgrounds.size());
     const float local = slide - std::floor(slide);
     const float fadeStart = 1.0f - kFadeSeconds / kSlideSeconds;
-    const float fade = std::clamp((local - fadeStart) / (1.0f - fadeStart), 0.0f, 1.0f);
+    const float fade = (std::clamp)((local - fadeStart) / (1.0f - fadeStart), 0.0f, 1.0f);
 
     DrawCoveredImage(drawList, backgrounds[current], display, 1.0f);
     if (fade > 0.0f) {
@@ -576,8 +576,8 @@ bool MainMenu::DrawMenuButton(const char* id, const char* label, const ImVec2& c
 
 void MainMenu::DrawTechPanel(const char* title, ImVec2& panelMin, ImVec2& panelMax, float widthScale) {
     const ImVec2 display = ImGui::GetIO().DisplaySize;
-    const float width = std::min(display.x * widthScale, widthScale > 0.70f ? 1040.0f : 760.0f);
-    const float height = std::min(display.y * 0.88f, 680.0f);
+    const float width = (std::min)(display.x * widthScale, widthScale > 0.70f ? 1040.0f : 760.0f);
+    const float height = (std::min)(display.y * 0.88f, 680.0f);
     panelMin = ImVec2((display.x - width) * 0.5f, (display.y - height) * 0.5f);
     panelMax = ImVec2(panelMin.x + width, panelMin.y + height);
     ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -608,7 +608,7 @@ void MainMenu::UpdateControllerNavigation(int itemCount, bool horizontal) {
     }
 
     if (itemCount <= 0 || !glfwJoystickIsGamepad(GLFW_JOYSTICK_1)) {
-        navigationSelection = std::clamp(navigationSelection, 0, std::max(itemCount - 1, 0));
+        navigationSelection = (std::clamp)(navigationSelection, 0, (std::max)(itemCount - 1, 0));
         return;
     }
 
@@ -640,10 +640,10 @@ void MainMenu::UpdateControllerNavigation(int itemCount, bool horizontal) {
             navigationSelection = (navigationSelection + 1) % itemCount;
         }
         if (upDown && !navUpWasDown) {
-            navigationSelection = std::max(navigationSelection - 1, 0);
+            navigationSelection = (std::max)(navigationSelection - 1, 0);
         }
         if (downDown && !navDownWasDown) {
-            navigationSelection = std::min(navigationSelection + 1, itemCount - 1);
+            navigationSelection = (std::min)(navigationSelection + 1, itemCount - 1);
         }
     }
     else {
@@ -716,7 +716,7 @@ void MainMenu::DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMa
     float imageWidth = w * 0.48f;
     float imageHeight = imageWidth * 0.55f;
     if (dualsense.texture != 0) {
-        imageHeight = imageWidth * static_cast<float>(dualsense.height) / std::max(static_cast<float>(dualsense.width), 1.0f);
+        imageHeight = imageWidth * static_cast<float>(dualsense.height) / (std::max)(static_cast<float>(dualsense.width), 1.0f);
         drawList->AddImage(
             reinterpret_cast<ImTextureID>(static_cast<intptr_t>(dualsense.texture)),
             imageMin,
@@ -729,7 +729,7 @@ void MainMenu::DrawGamepadControls(const ImVec2& panelMin, const ImVec2& panelMa
         ImGui::PushFont(bodyFont);
         const ImVec2 buttonSize = ImGui::CalcTextSize(button);
         const ImVec2 actionSize = ImGui::CalcTextSize(action);
-        const float labelWidth = std::max(buttonSize.x, actionSize.x) + 18.0f;
+        const float labelWidth = (std::max)(buttonSize.x, actionSize.x) + 18.0f;
         const float labelHeight = buttonSize.y + actionSize.y + 13.0f;
         const ImVec2 labelMin = leftSide ? labelPos : ImVec2(labelPos.x - labelWidth, labelPos.y);
         const ImVec2 labelMax(labelMin.x + labelWidth, labelMin.y + labelHeight);

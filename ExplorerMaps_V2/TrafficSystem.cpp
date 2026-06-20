@@ -56,7 +56,7 @@ namespace {
 
     glm::vec3 RoutePointAt(float distance, const TrafficRoute& route) {
         const float routeLength = RouteLength(route);
-        const float clampedDistance = std::clamp(distance, kRoutePadding, routeLength - kRoutePadding);
+        const float clampedDistance = (std::clamp)(distance, kRoutePadding, routeLength - kRoutePadding);
         const float routeAmount = routeLength > 0.001f ? clampedDistance / routeLength : 0.0f;
         return route.start + (route.end - route.start) * routeAmount;
     }
@@ -77,7 +77,7 @@ void TrafficSystem::Initialize() {
         TrafficCar& car = cars[i];
         car.color = colors[i % 5];
         car.directionSign = 1.0f;
-        car.routeIndex = std::min(i / kCarsPerRoute, kTrafficRouteCount - 1);
+        car.routeIndex = (std::min)(i / kCarsPerRoute, kTrafficRouteCount - 1);
         car.cruiseSpeed = 8.5f + static_cast<float>(i % 3) * 0.75f;
         car.speed = car.cruiseSpeed;
     }
@@ -114,7 +114,7 @@ bool TrafficSystem::FindLaneSpawn(
     const glm::vec3 routeDirection = RouteDirection(route);
     const glm::vec3 right(routeDirection.z, 0.0f, -routeDirection.x);
     const float routeLength = RouteLength(route);
-    const float anchorDistance = std::clamp(ProjectOnRoute(userPosition, route), kRoutePadding, routeLength - kRoutePadding);
+    const float anchorDistance = (std::clamp)(ProjectOnRoute(userPosition, route), kRoutePadding, routeLength - kRoutePadding);
     const bool keepBehindCamera = car.routeIndex == 0;
     const glm::vec3 flatView = glm::length(glm::vec2(userForward.x, userForward.z)) > 0.001f
         ? glm::normalize(glm::vec3(userForward.x, 0.0f, userForward.z))
@@ -168,7 +168,8 @@ bool TrafficSystem::FindLaneSpawn(
 
 bool TrafficSystem::IsLaneClear(const TrafficCar& car, PhysicsWorld& city) const {
     const glm::vec3 forward(std::sin(car.yaw), 0.0f, std::cos(car.yaw));
-    for (float distance : { -8.0f, 8.0f, 16.0f }) {
+    constexpr float sampleDistances[] = { -8.0f, 8.0f, 16.0f };
+    for (float distance : sampleDistances) {
         const glm::vec3 origin = car.position + forward * distance + glm::vec3(0.0f, 5.0f, 0.0f);
         float groundDistance = 0.0f;
         if (!city.Raycast(origin, glm::vec3(0.0f, -1.0f, 0.0f), groundDistance) || groundDistance > 12.0f) {
@@ -206,7 +207,7 @@ bool TrafficSystem::PlaceOnGround(TrafficCar& car, PhysicsWorld& city, bool imme
 }
 
 void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3& userPosition, const glm::vec3& userForward) {
-    const float safeDeltaTime = std::clamp(deltaTime, 0.0f, 0.05f);
+    const float safeDeltaTime = (std::clamp)(deltaTime, 0.0f, 0.05f);
     if (!zoneReady || glm::distance(glm::vec2(userPosition.x, userPosition.z), glm::vec2(activeZoneCenter.x, activeZoneCenter.z)) > kZoneRadius) {
         Regenerate(city, userPosition, userForward);
     }
@@ -223,7 +224,7 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
                     car.respawnDistance = 72.0f;
                 }
                 else {
-                    car.respawnDistance = std::min(car.respawnDistance + 18.0f, 126.0f);
+                    car.respawnDistance = (std::min)(car.respawnDistance + 18.0f, 126.0f);
                     car.respawnTimer = kRespawnDelay + static_cast<float>(carIndex) * 0.35f;
                 }
             }
@@ -239,10 +240,10 @@ void TrafficSystem::Update(float deltaTime, PhysicsWorld& city, const glm::vec3&
             const float forwardDistance = glm::dot(separation, forward);
             const float sideDistance = std::abs(glm::dot(separation, glm::vec3(forward.z, 0.0f, -forward.x)));
             if (forwardDistance > 0.0f && forwardDistance < kFollowingDistance && sideDistance < 4.5f) {
-                targetSpeed = std::min(targetSpeed, other.speed * (forwardDistance / kFollowingDistance));
+                targetSpeed = (std::min)(targetSpeed, other.speed * (forwardDistance / kFollowingDistance));
             }
         }
-        car.speed += (targetSpeed - car.speed) * std::clamp(safeDeltaTime * 3.5f, 0.0f, 1.0f);
+        car.speed += (targetSpeed - car.speed) * (std::clamp)(safeDeltaTime * 3.5f, 0.0f, 1.0f);
         car.position += forward * car.speed * safeDeltaTime;
         car.wheelSpin += car.speed * safeDeltaTime / kWheelRadius;
         car.groundCheckTimer -= safeDeltaTime;

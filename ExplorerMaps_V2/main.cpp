@@ -7,15 +7,33 @@
 #include <future>
 #include <cstdio>
 #include <cmath>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+// --- INCLUDES EXTERNOS ---
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4244)
+#endif
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-
-// --- INCLUDES EXTERNOS ---
-#define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_glfw.h"

@@ -14,6 +14,7 @@ struct GameplayGamepadInput {
     float rightTrigger = 0.0f;
     bool interactDown = false;
     bool pauseDown = false;
+    bool handbrakeDown = false;
 };
 
 // Funcionalidad: lectura del mando y mezcla con teclado/mouse.

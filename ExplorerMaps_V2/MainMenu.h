@@ -40,7 +40,10 @@ private:
     ImFont* buttonFont = nullptr;
     ImFont* bodyFont = nullptr;
     bool creditsOpen = false;
-    enum class PausePage { Main, Atmosphere, Controls };
+    bool optionsOpen = false;
+    enum class OptionsPage { Main, Language };
+    OptionsPage optionsPage = OptionsPage::Main;
+    enum class PausePage { Main, Atmosphere, Controls, Options };
     PausePage pausePage = PausePage::Main;
     enum class ControlsPage { Keyboard, Gamepad };
     ControlsPage controlsPage = ControlsPage::Keyboard;
@@ -64,6 +67,8 @@ private:
     bool DrawAngledButton(const char* id, const char* label, const ImVec2& center, const ImVec2& size, bool selected = false);
     void DrawBackground(float currentTime);
     void DrawCredits();
+    bool DrawOptions();
+    bool DrawLanguageSelector();
     bool DrawImageHotspot(const char* id, const ImVec2& min, const ImVec2& max);
     void DrawContainedPanel(const Background& image, ImVec2& panelMin, ImVec2& panelMax);
     bool DrawMenuButton(const char* id, const char* label, const ImVec2& center, const ImVec2& size, bool selected = false);
