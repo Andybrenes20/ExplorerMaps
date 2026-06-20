@@ -264,7 +264,7 @@ void VehicleController::UpdateGroundPose(PhysicsWorld& city, float deltaTime) {
     for (int i = 0; i < 4; ++i) {
         const glm::vec3 origin = position + offsets[i] + glm::vec3(0.0f, 4.0f, 0.0f);
         float distance = 0.0f;
-        if (city.Raycast(origin, glm::vec3(0.0f, -1.0f, 0.0f), distance) && distance < 8.0f) {
+        if (city.RaycastStatic(origin, glm::vec3(0.0f, -1.0f, 0.0f), distance) && distance < 8.0f) {
             heights[i] = origin.y - distance;
             grounded[i] = true;
             ++hits;

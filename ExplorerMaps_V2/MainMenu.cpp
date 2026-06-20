@@ -421,6 +421,9 @@ bool MainMenu::DrawAngledButton(const char* id, const char* label, const ImVec2&
         IM_COL32(4, 8, 14, 255),
         label);
     ImGui::PopFont();
+    if (pressed) {
+        PlayButtonSound();
+    }
     return pressed;
 }
 
@@ -466,8 +469,8 @@ void MainMenu::DrawCredits() {
 
     ImGui::PushFont(bodyFont);
     const char* text = Localization::Text(
-        "EXPLORER MAPS\n\nDesarrollo y diseno del proyecto\nEquipo ExplorerMaps",
-        "EXPLORER MAPS\n\nProject development and design\nExplorerMaps Team");
+        "EXPLORER MAPS\n\nEquipo ExplorerMaps\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener",
+        "EXPLORER MAPS\n\nExplorerMaps Team\n\nBrenes Ruiz Andy Antony\n\nOrtiz Vega Bianka Marcela\n\nVasquez Castillo Jeferson Evener");
     const ImVec2 textSize = ImGui::CalcTextSize(text);
     drawList->AddText(
         ImVec2((display.x - textSize.x) * 0.5f, panelMin.y + 98.0f),
@@ -590,6 +593,9 @@ bool MainMenu::DrawMenuButton(const char* id, const char* label, const ImVec2& c
     const ImVec2 textSize = ImGui::CalcTextSize(label);
     drawList->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f), IM_COL32(240, 244, 250, 255), label);
     ImGui::PopFont();
+    if (pressed) {
+        PlayButtonSound();
+    }
     return pressed;
 }
 

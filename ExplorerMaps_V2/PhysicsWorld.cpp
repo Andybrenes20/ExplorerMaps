@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <utility>
 #include <GL/glew.h>
 #include <assimp/matrix3x3.h>
@@ -72,6 +73,56 @@ glm::vec3 ScaleCristoSeatPart(const glm::vec3& position, const glm::vec3& pivot,
 
     const glm::vec3 seatScale(0.64f, 0.72f, 0.64f);
     return pivot + (position - pivot) * seatScale;
+}
+
+bool IntersectRayDynamicBox(const glm::vec3& origin, const glm::vec3& direction, const DynamicCollisionBox& box, float& outDistance) {
+    const float cosYaw = std::cos(box.yaw);
+    const float sinYaw = std::sin(box.yaw);
+    const glm::vec3 right(cosYaw, 0.0f, -sinYaw);
+    const glm::vec3 forward(sinYaw, 0.0f, cosYaw);
+    const glm::vec3 relativeOrigin = origin - box.center;
+    const glm::vec3 localOrigin(
+        glm::dot(relativeOrigin, right),
+        relativeOrigin.y,
+        glm::dot(relativeOrigin, forward));
+    const glm::vec3 localDirection(
+        glm::dot(direction, right),
+        direction.y,
+        glm::dot(direction, forward));
+    const glm::vec3 halfSize = box.size * 0.5f;
+
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
+    constexpr float kEpsilon = 0.0001f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+        const float originValue = localOrigin[axis];
+        const float directionValue = localDirection[axis];
+        const float minValue = -halfSize[axis];
+        const float maxValue = halfSize[axis];
+
+        if (std::abs(directionValue) < kEpsilon) {
+            if (originValue < minValue || originValue > maxValue) {
+                return false;
+            }
+            continue;
+        }
+
+        float t1 = (minValue - originValue) / directionValue;
+        float t2 = (maxValue - originValue) / directionValue;
+        if (t1 > t2) {
+            std::swap(t1, t2);
+        }
+
+        tMin = std::max(tMin, t1);
+        tMax = std::min(tMax, t2);
+        if (tMin > tMax) {
+            return false;
+        }
+    }
+
+    outDistance = tMin >= 0.0f ? tMin : tMax;
+    return outDistance >= 0.0f;
 }
 }
 
@@ -411,7 +462,7 @@ bool PhysicsWorld::IntersectRayTriangle(glm::vec3 orig, glm::vec3 dir, glm::vec3
     t = glm::dot(e2, qvec) * invDet; return t > EPSILON;
 }
 
-bool PhysicsWorld::Raycast(glm::vec3 origin, glm::vec3 direction, float& outDistance) {
+bool PhysicsWorld::RaycastStatic(glm::vec3 origin, glm::vec3 direction, float& outDistance) {
     if (glm::length(direction) <= 0.0001f) {
         return false;
     }
@@ -423,6 +474,34 @@ bool PhysicsWorld::Raycast(glm::vec3 origin, glm::vec3 direction, float& outDist
         glm::normalize(direction),
         outDistance,
         lastRaycastMeshIndex);
+}
+
+bool PhysicsWorld::Raycast(glm::vec3 origin, glm::vec3 direction, float& outDistance) {
+    if (glm::length(direction) <= 0.0001f) {
+        return false;
+    }
+
+    const glm::vec3 normalizedDirection = glm::normalize(direction);
+    float closestDistance = 0.0f;
+    bool hit = RaycastStatic(origin, normalizedDirection, closestDistance);
+
+    for (const DynamicCollisionBox& box : dynamicCollisionBoxes) {
+        float boxDistance = 0.0f;
+        if (IntersectRayDynamicBox(origin, normalizedDirection, box, boxDistance) &&
+            (!hit || boxDistance < closestDistance)) {
+            closestDistance = boxDistance;
+            hit = true;
+        }
+    }
+
+    if (hit) {
+        outDistance = closestDistance;
+    }
+    return hit;
+}
+
+void PhysicsWorld::SetDynamicCollisionBoxes(const std::vector<DynamicCollisionBox>& boxes) {
+    dynamicCollisionBoxes = boxes;
 }
 
 void PhysicsWorld::AddCollisionBox(const glm::vec3& center, const glm::vec3& size) {

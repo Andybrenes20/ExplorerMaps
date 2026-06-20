@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -23,25 +24,22 @@ private:
         float groundPitch = 0.0f;
         float groundCheckTimer = 0.0f;
         float obstacleCheckTimer = 0.0f;
-        float blockedTimer = 0.0f;
-        float behaviorPhase = 0.0f;
-        float acceleration = 2.8f;
         float respawnTimer = 0.0f;
         float respawnDistance = 72.0f;
         float directionSign = 1.0f;
-        float laneSide = 1.0f;
         float cruiseSpeed = 9.0f;
+        std::size_t routeIndex = 0;
         glm::vec3 color = glm::vec3(1.0f);
         bool active = false;
     };
 
     std::vector<TrafficCar> cars;
     glm::vec3 activeZoneCenter = glm::vec3(0.0f);
-    glm::vec3 travelDirection = glm::vec3(0.0f, 0.0f, 1.0f);
     bool zoneReady = false;
 
     void Regenerate(PhysicsWorld& city, const glm::vec3& userPosition, const glm::vec3& userForward);
     bool PlaceOnGround(TrafficCar& car, PhysicsWorld& city, bool immediate);
-    bool FindLaneSpawn(TrafficCar& car, PhysicsWorld& city, const glm::vec3& userPosition, const glm::vec3& userForward, float laneSide, float directionSign, float distance);
+    bool FindLaneSpawn(TrafficCar& car, PhysicsWorld& city, const glm::vec3& userPosition, const glm::vec3& userForward, float directionSign, float distance);
     bool IsLaneClear(const TrafficCar& car, PhysicsWorld& city) const;
+    void UpdateCollisionBoxes(PhysicsWorld& city) const;
 };

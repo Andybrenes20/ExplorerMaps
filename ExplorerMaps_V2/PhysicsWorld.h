@@ -60,6 +60,12 @@ struct RenderMesh {
     bool addedContent = false;
 };
 
+struct DynamicCollisionBox {
+    glm::vec3 center = glm::vec3(0.0f);
+    glm::vec3 size = glm::vec3(1.0f);
+    float yaw = 0.0f;
+};
+
 class PhysicsWorld {
 public:
     CollisionMesh cityCollider;
@@ -69,13 +75,16 @@ public:
     bool LoadCollisionData(const std::string& path);
     bool LoadVisualData(const std::string& path);
     bool Raycast(glm::vec3 origin, glm::vec3 direction, float& outDistance);
+    bool RaycastStatic(glm::vec3 origin, glm::vec3 direction, float& outDistance);
     void AddCollisionBox(const glm::vec3& center, const glm::vec3& size);
     void AddCollisionTriangles(const std::vector<glm::vec3>& vertices, const std::vector<unsigned int>& indices);
+    void SetDynamicCollisionBoxes(const std::vector<DynamicCollisionBox>& boxes);
 
     // --- NUEVA FUNCIÓN: Se ejecuta en el Hilo Principal ---
     void UploadToGPU();
 
 private:
+    std::vector<DynamicCollisionBox> dynamicCollisionBoxes;
     std::map<int, RawTextureData> pendingTextures;
     int lastRaycastMeshIndex = -1;
     bool visualOnly = false;
