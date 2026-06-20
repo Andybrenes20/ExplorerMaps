@@ -129,6 +129,11 @@ float lastY = SCR_HEIGHT / 2.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+enum MonumentType { MONUMENT_NONE, MONUMENT_RELOJ, MONUMENT_VOLCAN, MONUMENT_CRISTO };
+bool showMonumentFicha = false;
+bool monumentInteractWasDown = false;
+MonumentType activeMonument = MONUMENT_NONE;
+
 // --- DECLARACIÓN DE FUNCIONES ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
@@ -153,6 +158,13 @@ void UploadCityEnvironment(Shader& shader, const EnvironmentFrame& frame, const 
 void DrawDynamicSky(Shader& shader, unsigned int skyboxVAO, const EnvironmentFrame& frame, const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPosition, float currentFrame);
 glm::mat4 RenderDirectionalShadow(Shader& shader, unsigned int framebuffer, const EnvironmentFrame& frame, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, const PhysicsWorld& physics, const std::vector<Optimization::MeshBounds>& meshBounds, float sceneRadius);
 void TravelTo(const TravelDestination& destination);
+bool IsPlayerInBuildingZone(const glm::vec3& playerPosition);
+bool IsPlayerInVolcanoZone(const glm::vec3& playerPosition);
+bool IsPlayerInCristoZone(const glm::vec3& playerPosition);
+MonumentType DetectNearbyMonument(const glm::vec3& playerPosition);
+void DrawMonumentInteractPrompt();
+void DrawProgrammedMonumentFicha(MonumentType type);
+void UpdateMonumentInteraction(GLFWwindow* window, const GameplayGamepadInput& gamepad, const glm::vec3& playerPosition);
 
 int main() {
     // 1. INICIALIZAR GLFW Y CREAR VENTANA
@@ -552,12 +564,14 @@ int main() {
 
             DrawDynamicSky(skyboxShader, skyboxVAO, renderFrame, view, projection, animatedCameraPos, currentFrame);
             // Punto central de interaccion: ver InteractionReticle.cpp.
+            const MonumentType nearbyMonument = DetectNearbyMonument(cameraPos);
             InteractionReticle::DrawCenterDot(
                 static_cast<float>(SCR_WIDTH),
                 static_cast<float>(SCR_HEIGHT),
-                gamepad.interactDown || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || mountainElevator.CanInteract());
+                gamepad.interactDown || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || mountainElevator.CanInteract() || nearbyMonument != MONUMENT_NONE);
             mountainElevator.DrawHud(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
             WeatherOverlay::Draw(environmentFrame, currentFrame, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+            UpdateMonumentInteraction(window, gamepad, cameraPos);
             mainMenu.DrawEnvironmentMenu(environmentSystem);
             break;
         }
@@ -1018,6 +1032,188 @@ bool ShouldHideCristoCutoffArea(const glm::vec3& viewPosition) {
 bool ShouldHideVolcanoForCristoView(const glm::vec3& viewPosition, const glm::vec3& viewDirection) {
     (void)viewDirection;
     return IsInCristoAudioZone(viewPosition);
+}
+
+bool IsPlayerInBuildingZone(const glm::vec3& playerPosition) {
+    if (playerPosition.y < 51.0f) {
+        return false;
+    }
+
+    constexpr float centerX = 179.65f;
+    constexpr float centerZ = 223.75f;
+    constexpr float radius = 32.0f;
+    const float distanceX = playerPosition.x - centerX;
+    const float distanceZ = playerPosition.z - centerZ;
+    return (distanceX * distanceX + distanceZ * distanceZ) <= radius * radius;
+}
+
+bool IsPlayerInVolcanoZone(const glm::vec3& playerPosition) {
+    if (playerPosition.y < 37.0f) {
+        return false;
+    }
+
+    constexpr float minX = -980.0f;
+    constexpr float maxX = -450.0f;
+    constexpr float minZ = -200.0f;
+    constexpr float maxZ = -125.0f;
+    return playerPosition.x >= minX && playerPosition.x <= maxX &&
+        playerPosition.z >= minZ && playerPosition.z <= maxZ;
+}
+
+bool IsPlayerInCristoZone(const glm::vec3& playerPosition) {
+    if (playerPosition.y < 360.0f) {
+        return false;
+    }
+
+    const glm::vec3 center = TRAVEL_STATUE.lookAt;
+    constexpr float radius = 48.0f;
+    const float distanceX = playerPosition.x - center.x;
+    const float distanceZ = playerPosition.z - center.z;
+    return (distanceX * distanceX + distanceZ * distanceZ) <= radius * radius;
+}
+
+MonumentType DetectNearbyMonument(const glm::vec3& playerPosition) {
+    if (IsPlayerInBuildingZone(playerPosition)) {
+        return MONUMENT_RELOJ;
+    }
+    if (IsPlayerInCristoZone(playerPosition)) {
+        return MONUMENT_CRISTO;
+    }
+    if (IsPlayerInVolcanoZone(playerPosition)) {
+        return MONUMENT_VOLCAN;
+    }
+    return MONUMENT_NONE;
+}
+
+void DrawMonumentInteractPrompt() {
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const char* beforeKey = "PRESIONA ";
+    const char* afterKey = " PARA INSPECCIONAR MONUMENTO";
+    const ImVec2 padding(22.0f, 10.0f);
+    const ImVec2 beforeSize = ImGui::CalcTextSize(beforeKey);
+    const ImVec2 keySize = ImGui::CalcTextSize("E");
+    const ImVec2 afterSize = ImGui::CalcTextSize(afterKey);
+    const float keyWidth = keySize.x + 18.0f;
+    const float totalWidth = beforeSize.x + keyWidth + afterSize.x + padding.x * 2.0f + 14.0f;
+    const float totalHeight = (std::max)(beforeSize.y, keySize.y + 6.0f) + padding.y * 2.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.78f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+        ImGuiWindowFlags_NoMove;
+
+    if (ImGui::Begin("MonumentInteractPrompt", nullptr, flags)) {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 min = ImGui::GetWindowPos();
+        const ImVec2 max(min.x + totalWidth, min.y + totalHeight);
+        drawList->AddRectFilled(min, max, IM_COL32(14, 18, 28, 220), 10.0f);
+        drawList->AddRect(min, max, IM_COL32(60, 160, 255, 120), 10.0f, 0, 1.25f);
+
+        const ImVec2 textPos(min.x + padding.x, min.y + padding.y + 2.0f);
+        drawList->AddText(textPos, IM_COL32(230, 230, 240, 255), beforeKey);
+
+        const ImVec2 keyMin(textPos.x + beforeSize.x + 6.0f, min.y + padding.y - 1.0f);
+        const ImVec2 keyMax(keyMin.x + keyWidth, keyMin.y + keySize.y + 8.0f);
+        drawList->AddRectFilled(keyMin, keyMax, IM_COL32(10, 120, 200, 255), 6.0f);
+        drawList->AddRect(keyMin, keyMax, IM_COL32(255, 255, 255, 48), 6.0f, 0, 1.0f);
+        drawList->AddText(ImVec2(keyMin.x + (keyWidth - keySize.x) * 0.5f, keyMin.y + 4.0f), IM_COL32(245, 245, 245, 255), "E");
+
+        drawList->AddText(ImVec2(keyMax.x + 8.0f, textPos.y), IM_COL32(230, 230, 240, 255), afterKey);
+    }
+    ImGui::End();
+}
+
+void DrawProgrammedMonumentFicha(MonumentType type) {
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float panelWidth = (std::min)(display.x * 0.82f, 920.0f);
+    float panelHeight = 380.0f;
+    const char* title = "";
+    const char* description = "";
+    ImVec4 headerColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+    if (type == MONUMENT_RELOJ) {
+        title = "RELOJ DE DIRIAMBA";
+        description = "Construido en 1935, esta torre de 15.5 metros es el segundo monumento mas importante de la ciudad. Su estructura fue declarada Patrimonio Cultural en 2002.";
+        headerColor = ImVec4(0.98f, 0.73f, 0.05f, 1.0f);
+    }
+    else if (type == MONUMENT_VOLCAN) {
+        title = "VOLCAN MASAYA";
+        description = "Este volcan activo alberga el crater Santiago, uno de los pocos lugares del mundo con un lago de lava persistente. Como dato historico, el fraile espanol Francisco de Bobadilla coloco una gran cruz en su cumbre en 1529 para exorcizar al volcan, al que los conquistadores creian una entrada directa al infierno.";
+        headerColor = ImVec4(1.00f, 0.25f, 0.05f, 1.0f);
+        panelHeight = 470.0f;
+    }
+    else if (type == MONUMENT_CRISTO) {
+        title = "CRISTO REDENTOR";
+        description = "El Cristo Redentor o Cristo del Corcovado es una estatua art deco que representa a Jesus de Nazaret, con los brazos abiertos, mostrando a la ciudad de Rio de Janeiro, Brasil.";
+        headerColor = ImVec4(0.62f, 0.84f, 1.0f, 1.0f);
+    }
+
+    panelHeight = (std::min)(panelHeight, display.y * 0.82f);
+    ImGui::SetNextWindowPos(ImVec2((display.x - panelWidth) * 0.5f, (display.y - panelHeight) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight), ImGuiCond_Always);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28.0f, 24.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.02f, 0.04f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(headerColor.x, headerColor.y, headerColor.z, 0.55f));
+
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+
+    if (ImGui::Begin("MonumentFicha", nullptr, flags)) {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        const ImVec2 headerMin(windowPos.x + 12.0f, windowPos.y + 12.0f);
+        const ImVec2 headerMax(windowPos.x + panelWidth - 12.0f, headerMin.y + 86.0f);
+        drawList->AddRectFilled(headerMin, headerMax, IM_COL32(15, 18, 26, 255), 10.0f);
+        drawList->AddRectFilled(headerMin, ImVec2(headerMax.x, headerMin.y + 6.0f), ImGui::ColorConvertFloat4ToU32(headerColor), 10.0f);
+
+        const float titleFontSize = 24.0f;
+        const ImVec2 titleSize = ImGui::GetFont()->CalcTextSizeA(titleFontSize, FLT_MAX, 0.0f, title);
+        const ImVec2 titlePos(
+            headerMin.x + ((panelWidth - 24.0f) - titleSize.x) * 0.5f,
+            headerMin.y + (86.0f - titleSize.y) * 0.5f + 2.0f);
+        drawList->AddText(ImGui::GetFont(), titleFontSize, ImVec2(titlePos.x + 2.0f, titlePos.y + 2.0f), IM_COL32(0, 0, 0, 200), title);
+        drawList->AddText(ImGui::GetFont(), titleFontSize, titlePos, ImGui::ColorConvertFloat4ToU32(headerColor), title);
+
+        ImGui::SetCursorPosY(116.0f);
+        ImGui::PushTextWrapPos(panelWidth - 48.0f);
+        ImGui::SetWindowFontScale(0.62f);
+        ImGui::TextWrapped("%s", description);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+}
+
+void UpdateMonumentInteraction(GLFWwindow* window, const GameplayGamepadInput& gamepad, const glm::vec3& playerPosition) {
+    const MonumentType nearbyMonument = DetectNearbyMonument(playerPosition);
+    if (nearbyMonument == MONUMENT_NONE) {
+        showMonumentFicha = false;
+        monumentInteractWasDown = false;
+        activeMonument = MONUMENT_NONE;
+        return;
+    }
+
+    activeMonument = nearbyMonument;
+    if (!showMonumentFicha) {
+        DrawMonumentInteractPrompt();
+    }
+
+    const bool interactDown = glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || gamepad.interactDown;
+    if (interactDown && !monumentInteractWasDown) {
+        showMonumentFicha = !showMonumentFicha;
+    }
+    monumentInteractWasDown = interactDown;
+
+    if (showMonumentFicha) {
+        DrawProgrammedMonumentFicha(activeMonument);
+    }
 }
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
